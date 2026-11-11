@@ -6,7 +6,13 @@
 var STATE = {
   session: getSavedSession(),
   currentPage: 'dashboard',
-  dropdowns: { drivers: [], customers: [] },
+  dropdowns: { drivers: [], customers: [], mobils: [] },
+
+  autoSyncTimer: null,
+  inFlightSync: false,
+  lastSyncTime: '',
+  lastSyncTickMs: 0,
+  lastSnapshots: {},
 
   dashboardStats: null,
   dashboardRecent: [],
@@ -49,6 +55,15 @@ var STATE = {
     filters: { search: '', status: '' }
   },
 
+  mobil: {
+    items: [],
+    total: 0,
+    page: 1,
+    limit: 12,
+    totalPages: 1,
+    filters: { search: '', status: '' }
+  },
+
   report: {
     items: [],
     total: 0,
@@ -66,8 +81,14 @@ var STATE = {
   modalGpsError: ''
 };
 
+var AUTO_SYNC_INTERVAL_MS = 15000;
+
 window.onSessionExpired = function () {
+  stopAutoSyncLoop();
   STATE.session = null;
+  STATE.lastSnapshots = {};
+  STATE.lastSyncTime = '';
+  STATE.inFlightSync = false;
   closeModal();
   renderApp();
   showToast('Sesi login telah berakhir. Silakan masuk kembali.', 'warning');
@@ -78,6 +99,7 @@ document.addEventListener('DOMContentLoaded', function () {
     STATE.currentPage = STATE.session.user.divisi === 'Driver' ? 'tracking-driver' : 'dashboard';
     renderApp();
     loadActivePageData(false);
+    startAutoSyncLoop();
   } else {
     renderApp();
   }
@@ -89,7 +111,153 @@ document.addEventListener('DOMContentLoaded', function () {
       dropdown.classList.remove('open');
     }
   });
+
+  document.addEventListener('visibilitychange', function () {
+    if (!document.hidden) {
+      triggerVisibilityOrFocusSync();
+    }
+  });
+
+  window.addEventListener('focus', function () {
+    triggerVisibilityOrFocusSync();
+  });
 });
+
+// ============================================================================
+// AUTO-SYNC ENGINE (STALE-WHILE-REVALIDATE + SMART SILENT POLLING 15 DETIK)
+// ============================================================================
+
+function hasCacheEntry(cacheKey) {
+  return Boolean(typeof MEMORY_CACHE !== 'undefined' && cacheKey && Object.prototype.hasOwnProperty.call(MEMORY_CACHE, cacheKey));
+}
+
+function formatTimeNowHMS() {
+  var d = new Date();
+  var hh = String(d.getHours()).padStart(2, '0');
+  var mm = String(d.getMinutes()).padStart(2, '0');
+  var ss = String(d.getSeconds()).padStart(2, '0');
+  return hh + ':' + mm + ':' + ss;
+}
+
+function renderSyncStatusBadge() {
+  var label = STATE.inFlightSync
+    ? 'Menyinkronkan...'
+    : (STATE.lastSyncTime ? 'Auto-Update · ' + STATE.lastSyncTime : 'Auto-Update Aktif');
+  return (
+    '<div id="sync-pill" class="sync-pill ' + (STATE.inFlightSync ? 'syncing' : '') + '" title="Data otomatis diperbarui setiap 15 detik dan saat berpindah menu">' +
+      '<span class="sync-dot"></span>' +
+      '<span id="sync-status-label">' + escapeHtml(label) + '</span>' +
+    '</div>'
+  );
+}
+
+function setSyncVisualState(isSyncing, markUpdated) {
+  STATE.inFlightSync = Boolean(isSyncing);
+  if (markUpdated) {
+    STATE.lastSyncTime = formatTimeNowHMS();
+    STATE.lastSyncTickMs = Date.now();
+  }
+  var pill = document.getElementById('sync-pill');
+  var lbl = document.getElementById('sync-status-label');
+  if (pill) {
+    if (STATE.inFlightSync) {
+      pill.classList.add('syncing');
+    } else {
+      pill.classList.remove('syncing');
+    }
+  }
+  if (lbl) {
+    lbl.textContent = STATE.inFlightSync
+      ? 'Menyinkronkan...'
+      : (STATE.lastSyncTime ? 'Auto-Update · ' + STATE.lastSyncTime : 'Auto-Update Aktif');
+  }
+}
+
+function isUiBusyForBackgroundSync() {
+  var modalRoot = document.getElementById('modal-root');
+  if (modalRoot && modalRoot.innerHTML.trim() !== '') {
+    return true;
+  }
+  var dropdown = document.getElementById('overflow-dropdown');
+  if (dropdown && dropdown.classList.contains('open')) {
+    return true;
+  }
+  var activeEl = document.activeElement;
+  if (activeEl) {
+    var tag = activeEl.tagName;
+    if (tag === 'TEXTAREA' || tag === 'SELECT') {
+      return true;
+    }
+    if (tag === 'INPUT') {
+      var inputType = String(activeEl.type || '').toLowerCase();
+      if (inputType !== 'checkbox' && inputType !== 'radio' && inputType !== 'button' && inputType !== 'submit') {
+        return true;
+      }
+    }
+  }
+  var ordSearch = document.getElementById('ord-filter-search');
+  if (ordSearch && ordSearch.value.trim() !== STATE.orders.filters.search) {
+    return true;
+  }
+  var drvSearch = document.getElementById('drv-search-input');
+  if (drvSearch && drvSearch.value.trim() !== STATE.tracking.search) {
+    return true;
+  }
+  var krySearch = document.getElementById('kry-search');
+  if (krySearch && krySearch.value.trim() !== STATE.karyawan.filters.search) {
+    return true;
+  }
+  var cstSearch = document.getElementById('cst-search');
+  if (cstSearch && cstSearch.value.trim() !== STATE.customer.filters.search) {
+    return true;
+  }
+  var mblSearch = document.getElementById('mbl-search');
+  if (mblSearch && mblSearch.value.trim() !== STATE.mobil.filters.search) {
+    return true;
+  }
+  var repSearch = document.getElementById('rep-search');
+  if (repSearch && repSearch.value.trim() !== STATE.report.filters.search) {
+    return true;
+  }
+  return false;
+}
+
+function startAutoSyncLoop() {
+  stopAutoSyncLoop();
+  STATE.autoSyncTimer = setInterval(function () {
+    runSilentBackgroundSync();
+  }, AUTO_SYNC_INTERVAL_MS);
+}
+
+function stopAutoSyncLoop() {
+  if (STATE.autoSyncTimer) {
+    clearInterval(STATE.autoSyncTimer);
+    STATE.autoSyncTimer = null;
+  }
+}
+
+function triggerVisibilityOrFocusSync() {
+  if (!STATE.session || !STATE.session.user) {
+    return;
+  }
+  if (Date.now() - (STATE.lastSyncTickMs || 0) < 3000) {
+    return;
+  }
+  runSilentBackgroundSync();
+}
+
+function runSilentBackgroundSync() {
+  if (!STATE.session || !STATE.session.user) {
+    return;
+  }
+  if (document.hidden || STATE.inFlightSync) {
+    return;
+  }
+  if (isUiBusyForBackgroundSync()) {
+    return;
+  }
+  loadActivePageData(true, { silent: true });
+}
 
 // ============================================================================
 // NAVIGASI & RENDER SHELL
@@ -142,6 +310,7 @@ function renderApp() {
       '<button type="button" class="dropdown-item mobile-only-nav ' + (STATE.currentPage === 'report' ? 'active' : '') + '" onclick="navigateTo(\'report\')">' + ICONS.fileText + '<span>Laporan Delivery</span></button>' +
       '<button type="button" class="dropdown-item ' + (STATE.currentPage === 'karyawan' ? 'active' : '') + '" onclick="navigateTo(\'karyawan\')">' + ICONS.users + '<span>Master Karyawan</span></button>' +
       '<button type="button" class="dropdown-item ' + (STATE.currentPage === 'customer' ? 'active' : '') + '" onclick="navigateTo(\'customer\')">' + ICONS.building + '<span>Master Customer</span></button>' +
+      '<button type="button" class="dropdown-item ' + (STATE.currentPage === 'mobil' ? 'active' : '') + '" onclick="navigateTo(\'mobil\')">' + ICONS.truck + '<span>Master Mobil</span></button>' +
       '<button type="button" class="dropdown-item" onclick="openApiSettingsModal()">' + ICONS.settings + '<span>Pengaturan Server API</span></button>' +
       '<button type="button" class="dropdown-item danger" onclick="handleLogout()">' + ICONS.logout + '<span>Keluar</span></button>';
   } else {
@@ -167,6 +336,8 @@ function renderApp() {
     pageBody = renderKaryawanView();
   } else if (STATE.currentPage === 'customer') {
     pageBody = renderCustomerView();
+  } else if (STATE.currentPage === 'mobil') {
+    pageBody = renderMobilView();
   } else if (STATE.currentPage === 'report') {
     pageBody = renderReportView();
   }
@@ -201,38 +372,75 @@ function renderApp() {
     '</div>';
 }
 
-function loadActivePageData(forceRefresh) {
+function loadActivePageData(forceRefresh, fetchOpts) {
   if (!STATE.session || !STATE.session.user) {
     return;
   }
   var p = STATE.currentPage;
+  var opts = fetchOpts || {};
+
   if (p === 'dashboard') {
-    fetchDashboardData(forceRefresh);
+    fetchDashboardData(forceRefresh, opts);
   } else if (p === 'orders' || p === 'monitor') {
-    ensureDropdownsLoaded(forceRefresh).then(function () {
-      fetchOrdersData(forceRefresh);
+    ensureDropdownsLoaded(forceRefresh, opts).then(function () {
+      fetchOrdersData(forceRefresh, opts);
     });
   } else if (p === 'tracking-driver') {
-    fetchDriverTrackingData(forceRefresh);
+    fetchDriverTrackingData(forceRefresh, opts);
   } else if (p === 'karyawan') {
-    fetchKaryawanData(forceRefresh);
+    fetchKaryawanData(forceRefresh, opts);
   } else if (p === 'customer') {
-    fetchCustomerData(forceRefresh);
+    fetchCustomerData(forceRefresh, opts);
+  } else if (p === 'mobil') {
+    fetchMobilData(forceRefresh, opts);
   } else if (p === 'report') {
-    ensureDropdownsLoaded(forceRefresh).then(function () {
-      fetchReportData(forceRefresh);
+    ensureDropdownsLoaded(forceRefresh, opts).then(function () {
+      fetchReportData(forceRefresh, opts);
     });
   }
 }
 
-function ensureDropdownsLoaded(forceRefresh) {
+function ensureDropdownsLoaded(forceRefresh, fetchOpts) {
+  var servedFromCache = !forceRefresh && hasCacheEntry('dropdowns');
   return callGasApi('getMasterDropdowns', {}, {
     cacheKey: 'dropdowns',
     forceRefresh: Boolean(forceRefresh)
   }).then(function (data) {
-    STATE.dropdowns = data || { drivers: [], customers: [] };
+    var normalized = data || { drivers: [], customers: [], mobils: [] };
+    if (!normalized.mobils) {
+      normalized.mobils = [];
+    }
+    var snap = JSON.stringify(normalized);
+    var changed = STATE.lastSnapshots.dropdowns !== snap;
+    STATE.dropdowns = normalized;
+    STATE.lastSnapshots.dropdowns = snap;
+    if (servedFromCache && !(fetchOpts && fetchOpts.silent)) {
+      callGasApi('getMasterDropdowns', {}, {
+        cacheKey: 'dropdowns',
+        forceRefresh: true
+      }).then(function (fresh) {
+        var normFresh = fresh || { drivers: [], customers: [], mobils: [] };
+        if (!normFresh.mobils) {
+          normFresh.mobils = [];
+        }
+        var freshSnap = JSON.stringify(normFresh);
+        if (STATE.lastSnapshots.dropdowns !== freshSnap) {
+          STATE.dropdowns = normFresh;
+          STATE.lastSnapshots.dropdowns = freshSnap;
+          if (!isUiBusyForBackgroundSync() && (STATE.currentPage === 'orders' || STATE.currentPage === 'monitor' || STATE.currentPage === 'report')) {
+            renderApp();
+          }
+        }
+      }).catch(function () {});
+    } else if (changed && fetchOpts && fetchOpts.silent && !isUiBusyForBackgroundSync()) {
+      if (STATE.currentPage === 'orders' || STATE.currentPage === 'monitor' || STATE.currentPage === 'report') {
+        renderApp();
+      }
+    }
   }).catch(function () {
-    STATE.dropdowns = { drivers: [], customers: [] };
+    if (!STATE.dropdowns) {
+      STATE.dropdowns = { drivers: [], customers: [], mobils: [] };
+    }
   });
 }
 
@@ -300,11 +508,14 @@ function bindLoginEvents() {
     callGasApi('login', { username: username, password: password })
       .then(function (data) {
         clearApiCache();
+        STATE.lastSnapshots = {};
+        STATE.lastSyncTime = '';
         STATE.session = data;
         saveSession(data);
         STATE.currentPage = data.user.divisi === 'Driver' ? 'tracking-driver' : 'dashboard';
         renderApp();
         loadActivePageData(true);
+        startAutoSyncLoop();
         showToast('Selamat datang, ' + data.user.namaKaryawan + '!', 'success');
       })
       .catch(function (err) {
@@ -321,10 +532,14 @@ function bindLoginEvents() {
 }
 
 function handleLogout() {
+  stopAutoSyncLoop();
   callGasApi('logout', {}).catch(function () {});
   saveSession(null);
   clearApiCache();
   STATE.session = null;
+  STATE.lastSnapshots = {};
+  STATE.lastSyncTime = '';
+  STATE.inFlightSync = false;
   renderApp();
   showToast('Anda telah keluar dari aplikasi.', 'info');
 }
@@ -361,6 +576,7 @@ function saveApiSettings() {
   }
   setApiUrl(val);
   clearApiCache();
+  STATE.lastSnapshots = {};
   closeModal();
   renderApp();
   showToast('URL Server API berhasil disimpan.', 'success');
@@ -386,7 +602,13 @@ function testApiConnection() {
 // DASHBOARD
 // ============================================================================
 
-function fetchDashboardData(forceRefresh) {
+function fetchDashboardData(forceRefresh, fetchOpts) {
+  var silent = Boolean(fetchOpts && fetchOpts.silent);
+  var servedFromCache = !forceRefresh && hasCacheEntry('dashboard_stats') && hasCacheEntry('dashboard_recent');
+  if (!servedFromCache) {
+    setSyncVisualState(true, false);
+  }
+
   var p1 = callGasApi('getDashboardStats', {}, {
     cacheKey: 'dashboard_stats',
     forceRefresh: Boolean(forceRefresh)
@@ -398,14 +620,29 @@ function fetchDashboardData(forceRefresh) {
 
   Promise.all([p1, p2])
     .then(function (res) {
-      STATE.dashboardStats = res[0];
-      STATE.dashboardRecent = (res[1] && res[1].items) ? res[1].items : [];
-      if (STATE.currentPage === 'dashboard') {
+      var stats = res[0];
+      var recent = (res[1] && res[1].items) ? res[1].items : [];
+      var snap = JSON.stringify({ stats: stats, recent: recent });
+      var changed = STATE.lastSnapshots.dashboard !== snap;
+
+      STATE.dashboardStats = stats;
+      STATE.dashboardRecent = recent;
+      STATE.lastSnapshots.dashboard = snap;
+
+      setSyncVisualState(false, !servedFromCache || Boolean(forceRefresh));
+
+      if (STATE.currentPage === 'dashboard' && (changed || (!silent && !servedFromCache))) {
         renderApp();
+      }
+      if (servedFromCache && !silent) {
+        fetchDashboardData(true, { silent: true });
       }
     })
     .catch(function (err) {
-      showToast(err.message, 'error');
+      setSyncVisualState(false, false);
+      if (!silent) {
+        showToast(err.message, 'error');
+      }
     });
 }
 
@@ -439,12 +676,15 @@ function renderDashboardView() {
   } else {
     for (var i = 0; i < STATE.dashboardRecent.length; i++) {
       var d = STATE.dashboardRecent[i];
+      var mobilText = d.platMobil
+        ? (d.platMobil + (d.jenisMobil ? ' · ' + d.jenisMobil : ''))
+        : 'Mobil belum tercatat';
       recentRows +=
         '<tr>' +
           '<td><div class="cell-strong">' + escapeHtml(d.idTracking) + '</div><div class="cell-sub">' + formatDateID(d.tanggalDO) + '</div></td>' +
           '<td><div class="cell-strong">' + escapeHtml(d.nomorDO) + '</div>' + (d.percobaanKe > 1 ? '<div class="cell-sub">Kirim Ulang #' + d.percobaanKe + '</div>' : '') + '</td>' +
           '<td><div class="cell-strong">' + escapeHtml(d.namaCustomer) + '</div></td>' +
-          '<td>' + escapeHtml(d.namaDriver) + '</td>' +
+          '<td><div class="cell-strong">' + escapeHtml(d.namaDriver) + '</div><div class="cell-sub">' + escapeHtml(mobilText) + '</div></td>' +
           '<td>' + getStatusBadgeHtml(d.status) + '</td>' +
           '<td><button type="button" class="btn btn-secondary btn-sm" onclick="openOrderDetailModal(\'' + escapeHtml(d.idTracking) + '\')">' + ICONS.eye + '<span>Detail</span></button></td>' +
         '</tr>';
@@ -462,7 +702,7 @@ function renderDashboardView() {
         '<p class="page-subtitle">Ringkasan status pengiriman real-time untuk ' + escapeHtml(user.namaKaryawan) + '</p>' +
       '</div>' +
       '<div class="header-actions">' +
-        '<button type="button" class="btn btn-secondary btn-sm" onclick="fetchDashboardData(true)">' + ICONS.refresh + '<span>Refresh Data</span></button>' +
+        renderSyncStatusBadge() +
         quickCta +
       '</div>' +
     '</div>' +
@@ -475,7 +715,7 @@ function renderDashboardView() {
       '</div>' +
       '<div class="table-wrap">' +
         '<table class="data-table">' +
-          '<thead><tr><th>ID Tracking / Tgl</th><th>Nomor DO</th><th>Customer</th><th>Driver</th><th>Status</th><th>Aksi</th></tr></thead>' +
+          '<thead><tr><th>ID Tracking / Tgl</th><th>Nomor DO</th><th>Customer</th><th>Driver & Mobil</th><th>Status</th><th>Aksi</th></tr></thead>' +
           '<tbody>' + recentRows + '</tbody>' +
         '</table>' +
       '</div>' +
@@ -505,7 +745,8 @@ function openFailedFilterOrders() {
 // MENU DELIVERY ORDER - PIF & TRACKING MONITOR (BACK OFFICE)
 // ============================================================================
 
-function fetchOrdersData(forceRefresh) {
+function fetchOrdersData(forceRefresh, fetchOpts) {
+  var silent = Boolean(fetchOpts && fetchOpts.silent);
   var f = STATE.orders.filters;
   var payload = {
     page: STATE.orders.page,
@@ -518,20 +759,37 @@ function fetchOrdersData(forceRefresh) {
     customerId: f.customerId
   };
   var cacheKey = 'orders_' + JSON.stringify(payload);
+  var servedFromCache = !forceRefresh && hasCacheEntry(cacheKey);
+  if (!servedFromCache) {
+    setSyncVisualState(true, false);
+  }
 
   callGasApi('listDeliveryOrders', payload, {
     cacheKey: cacheKey,
     forceRefresh: Boolean(forceRefresh)
   }).then(function (data) {
+    var snap = JSON.stringify({ query: payload, data: data });
+    var changed = STATE.lastSnapshots.orders !== snap;
+
     STATE.orders.items = data.items || [];
     STATE.orders.total = data.total || 0;
     STATE.orders.page = data.page || 1;
     STATE.orders.totalPages = data.totalPages || 1;
-    if (STATE.currentPage === 'orders' || STATE.currentPage === 'monitor') {
+    STATE.lastSnapshots.orders = snap;
+
+    setSyncVisualState(false, !servedFromCache || Boolean(forceRefresh));
+
+    if ((STATE.currentPage === 'orders' || STATE.currentPage === 'monitor') && (changed || (!silent && !servedFromCache))) {
       renderApp();
     }
+    if (servedFromCache && !silent) {
+      fetchOrdersData(true, { silent: true });
+    }
   }).catch(function (err) {
-    showToast(err.message, 'error');
+    setSyncVisualState(false, false);
+    if (!silent) {
+      showToast(err.message, 'error');
+    }
   });
 }
 
@@ -554,8 +812,8 @@ function renderOrdersFilterBar(isMonitor) {
     '<div class="card" style="margin-bottom:14px">' +
       '<div class="filter-bar" style="margin-bottom:0">' +
         '<div class="form-group">' +
-          '<label class="form-label">Cari DO / Customer / Driver</label>' +
-          '<input id="ord-filter-search" class="form-control" type="text" value="' + escapeHtml(f.search) + '" placeholder="No DO, ID Tracking, Customer..." />' +
+          '<label class="form-label">Cari DO / Customer / Mobil</label>' +
+          '<input id="ord-filter-search" class="form-control" type="text" value="' + escapeHtml(f.search) + '" placeholder="No DO, ID Tracking, Plat, Customer..." onkeydown="if(event.key===\'Enter\'){event.preventDefault();applyOrdersFilter();}" />' +
         '</div>' +
         '<div class="form-group">' +
           '<label class="form-label">Status</label>' +
@@ -622,7 +880,7 @@ function renderOrdersView() {
         actions += '<button type="button" class="btn btn-outline-danger btn-sm" onclick="openOrderFormModal(\'' + escapeHtml(d.idTracking) + '\', true)">' + ICONS.redo + '<span>Kirim Ulang</span></button>';
       }
       if (d.driverWhatsApp) {
-        var waMsg = 'Halo ' + d.namaDriver + ', mohon cek Delivery Order No: ' + d.nomorDO + ' untuk Customer ' + d.namaCustomer + '.';
+        var waMsg = 'Halo ' + d.namaDriver + ', mohon cek Delivery Order No: ' + d.nomorDO + ' untuk Customer ' + d.namaCustomer + (d.platMobil ? ' (Mobil: ' + d.platMobil + ')' : '') + '.';
         actions += '<a class="btn btn-outline-emerald btn-sm" target="_blank" rel="noopener" href="' + escapeHtml(buildWhatsAppUrl(d.driverWhatsApp, waMsg)) + '">' + ICONS.phone + '<span>WA Driver</span></a>';
       }
 
@@ -634,6 +892,10 @@ function renderOrdersView() {
         statusExtra = '<div class="cell-sub">Penerima: ' + escapeHtml(d.namaPenerima) + '</div>';
       }
 
+      var mobilLine = d.platMobil
+        ? '<div style="margin:3px 0"><span class="vehicle-tag">' + escapeHtml(d.platMobil) + (d.jenisMobil ? ' · ' + escapeHtml(d.jenisMobil) : '') + '</span></div>'
+        : '<div class="cell-sub">Mobil: -</div>';
+
       rowsHtml +=
         '<tr>' +
           '<td><div class="cell-strong">' + escapeHtml(d.idTracking) + '</div><div class="cell-sub">' + formatDateID(d.tanggalDO) + '</div></td>' +
@@ -641,7 +903,7 @@ function renderOrdersView() {
             (d.percobaanKe > 1 ? '<div class="cell-sub"><span class="badge badge-info">Kirim Ulang #' + d.percobaanKe + '</span></div>' : '') +
           '</td>' +
           '<td><div class="cell-strong">' + escapeHtml(d.namaCustomer) + '</div><div class="cell-sub">' + escapeHtml(d.customerAlamat || '-') + '</div></td>' +
-          '<td><div class="cell-strong">' + escapeHtml(d.namaDriver) + '</div><div class="cell-sub">Input: ' + escapeHtml(d.namaBackOffice) + '</div></td>' +
+          '<td><div class="cell-strong">' + escapeHtml(d.namaDriver) + '</div>' + mobilLine + '<div class="cell-sub">Input: ' + escapeHtml(d.namaBackOffice) + '</div></td>' +
           '<td>' + getStatusBadgeHtml(d.status) + statusExtra + '</td>' +
           '<td><div class="cell-sub">PickUp Foto: ' + (d.pickUpFotos || []).length + '/6</div><div class="cell-sub">CheckIn Foto: ' + (d.checkInFotos || []).length + '/6</div></td>' +
           '<td><div class="action-cluster">' + actions + '</div></td>' +
@@ -653,10 +915,10 @@ function renderOrdersView() {
     '<div class="page-header">' +
       '<div>' +
         '<h2 class="page-title">Delivery Order - PIF</h2>' +
-        '<p class="page-subtitle">Input DO baru oleh Back Office, pantau status pengiriman, dan kirim ulang DO yang gagal kirim</p>' +
+        '<p class="page-subtitle">Input DO baru oleh Back Office, pantau status pengiriman, armada mobil, dan kirim ulang DO gagal</p>' +
       '</div>' +
       '<div class="header-actions">' +
-        '<button type="button" class="btn btn-secondary btn-sm" onclick="fetchOrdersData(true)">' + ICONS.refresh + '<span>Refresh Data</span></button>' +
+        renderSyncStatusBadge() +
         '<button type="button" class="btn btn-primary" onclick="openOrderFormModal(\'\', false)">' + ICONS.plus + '<span>Tambah Delivery Order</span></button>' +
       '</div>' +
     '</div>' +
@@ -664,7 +926,7 @@ function renderOrdersView() {
     '<div class="table-card">' +
       '<div class="table-wrap">' +
         '<table class="data-table">' +
-          '<thead><tr><th>ID Tracking & Tgl</th><th>Nomor DO</th><th>Customer</th><th>Driver</th><th>Status & Catatan</th><th>Bukti Foto</th><th>Aksi</th></tr></thead>' +
+          '<thead><tr><th>ID Tracking & Tgl</th><th>Nomor DO</th><th>Customer</th><th>Driver & Mobil</th><th>Status & Catatan</th><th>Bukti Foto</th><th>Aksi</th></tr></thead>' +
           '<tbody>' + rowsHtml + '</tbody>' +
         '</table>' +
       '</div>' +
@@ -705,10 +967,14 @@ function renderMonitorView() {
         '<div class="cell-sub">Check-In: ' + (d.waktuCheckIn ? formatDateTimeID(d.waktuCheckIn) : '-') + '</div>' +
         '<div class="cell-sub">Check-Out: ' + (d.waktuCheckOut ? formatDateTimeID(d.waktuCheckOut) : '-') + '</div>';
 
+      var mobilSummary = d.platMobil
+        ? escapeHtml(d.platMobil) + (d.jenisMobil ? ' (' + escapeHtml(d.jenisMobil) + ')' : '')
+        : '-';
+
       rowsHtml +=
         '<tr>' +
           '<td><div class="cell-strong">' + escapeHtml(d.nomorDO) + '</div><div class="cell-sub">' + escapeHtml(d.idTracking) + ' · ' + formatDateID(d.tanggalDO) + '</div></td>' +
-          '<td><div class="cell-strong">' + escapeHtml(d.namaCustomer) + '</div><div class="cell-sub">Driver: ' + escapeHtml(d.namaDriver) + '</div></td>' +
+          '<td><div class="cell-strong">' + escapeHtml(d.namaCustomer) + '</div><div class="cell-sub">Driver: ' + escapeHtml(d.namaDriver) + '</div><div class="cell-sub">Mobil: ' + mobilSummary + '</div></td>' +
           '<td>' + getStatusBadgeHtml(d.status) + (d.percobaanKe > 1 ? '<div class="cell-sub">Percobaan #' + d.percobaanKe + '</div>' : '') + '</td>' +
           '<td>' + waktuSummary + '</td>' +
           '<td>' + gpsLinks + '</td>' +
@@ -722,23 +988,55 @@ function renderMonitorView() {
     '<div class="page-header">' +
       '<div>' +
         '<h2 class="page-title">Monitoring Tracking Driver</h2>' +
-        '<p class="page-subtitle">Pantau lokasi GPS Check-In/Check-Out, foto bukti barang, penerima, dan kendala pengiriman</p>' +
+        '<p class="page-subtitle">Pantau lokasi GPS Check-In/Check-Out, armada kendaraan, foto bukti barang, penerima, dan kendala</p>' +
       '</div>' +
       '<div class="header-actions">' +
-        '<button type="button" class="btn btn-secondary btn-sm" onclick="fetchOrdersData(true)">' + ICONS.refresh + '<span>Refresh Data</span></button>' +
+        renderSyncStatusBadge() +
       '</div>' +
     '</div>' +
     renderOrdersFilterBar(true) +
     '<div class="table-card">' +
       '<div class="table-wrap">' +
         '<table class="data-table">' +
-          '<thead><tr><th>Nomor DO / Tracking</th><th>Customer & Driver</th><th>Status</th><th>Waktu Tahapan</th><th>Titik GPS</th><th>Penerima & Ket.</th><th>Aksi</th></tr></thead>' +
+          '<thead><tr><th>Nomor DO / Tracking</th><th>Customer, Driver & Mobil</th><th>Status</th><th>Waktu Tahapan</th><th>Titik GPS</th><th>Penerima & Ket.</th><th>Aksi</th></tr></thead>' +
           '<tbody>' + rowsHtml + '</tbody>' +
         '</table>' +
       '</div>' +
       renderPaginationBar(STATE.orders.page, STATE.orders.totalPages, STATE.orders.total, 'changeOrdersPage') +
     '</div>'
   );
+}
+
+function handleOrderMobilChange(selectedIdMobil) {
+  var jenisInput = document.getElementById('ord-jenis-mobil');
+  if (!jenisInput) {
+    return;
+  }
+  var mobils = STATE.dropdowns.mobils || [];
+  var foundJenis = '';
+  for (var i = 0; i < mobils.length; i++) {
+    if (mobils[i].idMobil === selectedIdMobil) {
+      foundJenis = mobils[i].jenisMobil || '';
+      break;
+    }
+  }
+  jenisInput.value = foundJenis;
+}
+
+function buildOrderMobilOptionsHtml(preSelectedMobilId) {
+  var mobils = STATE.dropdowns.mobils || [];
+  var html = '<option value="">-- Pilih Plat Mobil --</option>';
+  var matched = false;
+  var matchedJenis = '';
+  for (var m = 0; m < mobils.length; m++) {
+    var isSel = Boolean(preSelectedMobilId && preSelectedMobilId === mobils[m].idMobil);
+    if (isSel) {
+      matched = true;
+      matchedJenis = mobils[m].jenisMobil || '';
+    }
+    html += '<option value="' + escapeHtml(mobils[m].idMobil) + '" ' + (isSel ? 'selected' : '') + '>' + escapeHtml(mobils[m].platMobil) + '</option>';
+  }
+  return { html: html, matched: matched, matchedJenis: matchedJenis };
 }
 
 function openOrderFormModal(existingIdTracking, isRedelivery) {
@@ -769,6 +1067,17 @@ function openOrderFormModal(existingIdTracking, isRedelivery) {
   for (var d = 0; d < drivers.length; d++) {
     var selD = (!isRedelivery && existing && existing.idDriver === drivers[d].idKaryawan) ? 'selected' : '';
     drvOpts += '<option value="' + escapeHtml(drivers[d].idKaryawan) + '" ' + selD + '>' + escapeHtml(drivers[d].namaKaryawan) + '</option>';
+  }
+
+  var preSelectedMobilId = existing ? (existing.idMobil || '') : '';
+  var mobils = STATE.dropdowns.mobils || [];
+  var mobilBuilt = buildOrderMobilOptionsHtml(preSelectedMobilId);
+
+  var mobilNotice = '';
+  if (!mobils.length) {
+    mobilNotice = '<div class="form-hint" style="color:var(--amber)">Belum ada mobil aktif. Tambah terlebih dahulu di menu <strong>Lainnya → Master Mobil</strong>.</div>';
+  } else if (preSelectedMobilId && !mobilBuilt.matched && existing && existing.platMobil) {
+    mobilNotice = '<div class="form-hint" style="color:var(--amber)">Mobil sebelumnya (' + escapeHtml(existing.platMobil) + ') sedang nonaktif. Silakan pilih Plat Mobil aktif.</div>';
   }
 
   var redeliveryBanner = isRedelivery && existing
@@ -807,6 +1116,17 @@ function openOrderFormModal(existingIdTracking, isRedelivery) {
             '<select id="ord-driver" class="form-control" required>' + drvOpts + '</select>' +
           '</div>' +
         '</div>' +
+        '<div class="form-grid-2">' +
+          '<div class="form-group">' +
+            '<label class="form-label" for="ord-mobil">Plat Mobil <span class="req">*</span></label>' +
+            '<select id="ord-mobil" class="form-control" required onchange="handleOrderMobilChange(this.value)">' + mobilBuilt.html + '</select>' +
+            mobilNotice +
+          '</div>' +
+          '<div class="form-group">' +
+            '<label class="form-label" for="ord-jenis-mobil">Jenis Mobil (Otomatis)</label>' +
+            '<input id="ord-jenis-mobil" class="form-control" type="text" readonly value="' + escapeHtml(mobilBuilt.matchedJenis) + '" placeholder="Otomatis terisi sesuai Plat Mobil" />' +
+          '</div>' +
+        '</div>' +
       '</div>' +
       '<div class="modal-footer">' +
         '<button type="button" class="btn btn-secondary" onclick="closeModal()">Batal</button>' +
@@ -815,6 +1135,35 @@ function openOrderFormModal(existingIdTracking, isRedelivery) {
     '</form>';
 
   openModal(html);
+
+  if (!STATE.dropdowns.mobils.length || !STATE.dropdowns.drivers.length || !STATE.dropdowns.customers.length) {
+    ensureDropdownsLoaded(false, { silent: true }).then(function () {
+      var mobilSel = document.getElementById('ord-mobil');
+      if (mobilSel && !mobilSel.value) {
+        var refreshedMobil = buildOrderMobilOptionsHtml(preSelectedMobilId);
+        mobilSel.innerHTML = refreshedMobil.html;
+        handleOrderMobilChange(mobilSel.value);
+      }
+      var custSel = document.getElementById('ord-customer');
+      if (custSel && !custSel.value && STATE.dropdowns.customers.length) {
+        var cHtml = '<option value="">-- Pilih Customer --</option>';
+        for (var ci = 0; ci < STATE.dropdowns.customers.length; ci++) {
+          var cu = STATE.dropdowns.customers[ci];
+          cHtml += '<option value="' + escapeHtml(cu.idCustomer) + '" ' + (existing && existing.idCustomer === cu.idCustomer ? 'selected' : '') + '>' + escapeHtml(cu.namaCustomer) + '</option>';
+        }
+        custSel.innerHTML = cHtml;
+      }
+      var drvSel = document.getElementById('ord-driver');
+      if (drvSel && !drvSel.value && STATE.dropdowns.drivers.length) {
+        var dHtml = '<option value="">-- Pilih Driver --</option>';
+        for (var di = 0; di < STATE.dropdowns.drivers.length; di++) {
+          var dr = STATE.dropdowns.drivers[di];
+          dHtml += '<option value="' + escapeHtml(dr.idKaryawan) + '" ' + (!isRedelivery && existing && existing.idDriver === dr.idKaryawan ? 'selected' : '') + '>' + escapeHtml(dr.namaKaryawan) + '</option>';
+        }
+        drvSel.innerHTML = dHtml;
+      }
+    });
+  }
 
   if (!isEdit) {
     callGasApi('getNextTrackingId', {}).then(function (data) {
@@ -832,8 +1181,14 @@ function openOrderFormModal(existingIdTracking, isRedelivery) {
       tanggalDO: document.getElementById('ord-tanggal').value,
       nomorDO: document.getElementById('ord-nomor').value.trim(),
       idCustomer: document.getElementById('ord-customer').value,
-      idDriver: document.getElementById('ord-driver').value
+      idDriver: document.getElementById('ord-driver').value,
+      idMobil: document.getElementById('ord-mobil').value
     };
+
+    if (!payload.idMobil) {
+      showToast('Plat Mobil wajib dipilih dari Master Mobil.', 'warning');
+      return;
+    }
 
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner"></span><span>Menyimpan...</span>';
@@ -848,6 +1203,7 @@ function openOrderFormModal(existingIdTracking, isRedelivery) {
         clearApiCache('orders_');
         clearApiCache('dashboard_');
         clearApiCache('report_');
+        clearApiCache('tracking_');
         closeModal();
         fetchOrdersData(true);
         showToast(
@@ -872,7 +1228,8 @@ function openOrderFormModal(existingIdTracking, isRedelivery) {
 // MENU TRACKING DRIVER (MULTI-DO, 6 SLOT FOTO, WAJIB GPS, GAGAL KIRIM)
 // ============================================================================
 
-function fetchDriverTrackingData(forceRefresh) {
+function fetchDriverTrackingData(forceRefresh, fetchOpts) {
+  var silent = Boolean(fetchOpts && fetchOpts.silent);
   var payload = {
     page: STATE.tracking.page,
     limit: STATE.tracking.limit,
@@ -880,21 +1237,51 @@ function fetchDriverTrackingData(forceRefresh) {
     search: STATE.tracking.search
   };
   var cacheKey = 'tracking_' + JSON.stringify(payload);
+  var servedFromCache = !forceRefresh && hasCacheEntry(cacheKey);
+  if (!servedFromCache) {
+    setSyncVisualState(true, false);
+  }
 
   callGasApi('listDeliveryOrders', payload, {
     cacheKey: cacheKey,
     forceRefresh: Boolean(forceRefresh)
   }).then(function (data) {
-    STATE.tracking.items = data.items || [];
+    var newItems = data.items || [];
+    var snap = JSON.stringify({ query: payload, data: data });
+    var changed = STATE.lastSnapshots.tracking !== snap;
+
+    var validMap = {};
+    for (var vi = 0; vi < newItems.length; vi++) {
+      validMap[newItems[vi].idTracking] = true;
+    }
+    var keptSelected = {};
+    var prevKeys = Object.keys(STATE.tracking.selectedIds || {});
+    for (var ki = 0; ki < prevKeys.length; ki++) {
+      if (validMap[prevKeys[ki]]) {
+        keptSelected[prevKeys[ki]] = true;
+      }
+    }
+
+    STATE.tracking.items = newItems;
     STATE.tracking.total = data.total || 0;
     STATE.tracking.page = data.page || 1;
     STATE.tracking.totalPages = data.totalPages || 1;
-    STATE.tracking.selectedIds = {};
-    if (STATE.currentPage === 'tracking-driver') {
+    STATE.tracking.selectedIds = keptSelected;
+    STATE.lastSnapshots.tracking = snap;
+
+    setSyncVisualState(false, !servedFromCache || Boolean(forceRefresh));
+
+    if (STATE.currentPage === 'tracking-driver' && (changed || (!silent && !servedFromCache))) {
       renderApp();
     }
+    if (servedFromCache && !silent) {
+      fetchDriverTrackingData(true, { silent: true });
+    }
   }).catch(function (err) {
-    showToast(err.message, 'error');
+    setSyncVisualState(false, false);
+    if (!silent) {
+      showToast(err.message, 'error');
+    }
   });
 }
 
@@ -908,6 +1295,7 @@ function switchTrackingTab(tabName) {
 function searchDriverTracking() {
   STATE.tracking.search = document.getElementById('drv-search-input').value.trim();
   STATE.tracking.page = 1;
+  STATE.tracking.selectedIds = {};
   fetchDriverTrackingData(false);
 }
 
@@ -970,6 +1358,10 @@ function renderDriverTrackingView() {
         extraNote = '<div class="cell-sub"><strong>Penerima:</strong> ' + escapeHtml(d.namaPenerima) + (d.keterangan ? ' · ' + escapeHtml(d.keterangan) : '') + '</div>';
       }
 
+      var vehicleBadge = d.platMobil
+        ? '<div style="margin-top:6px"><span class="vehicle-tag">Mobil: ' + escapeHtml(d.platMobil) + (d.jenisMobil ? ' · ' + escapeHtml(d.jenisMobil) : '') + '</span></div>'
+        : '';
+
       cardsHtml +=
         '<div class="driver-do-card ' + (isSelected ? 'selected' : '') + '">' +
           '<div class="do-card-head">' +
@@ -985,6 +1377,7 @@ function renderDriverTrackingView() {
           '<div style="border-top:1px solid var(--border-color);padding-top:8px">' +
             '<div class="cell-strong">' + escapeHtml(d.namaCustomer) + '</div>' +
             '<div class="cell-sub">' + escapeHtml(d.customerAlamat || 'Alamat belum tercatat') + '</div>' +
+            vehicleBadge +
           '</div>' +
           extraNote +
           '<div class="action-cluster" style="margin-top:auto;padding-top:4px">' + cardActions + '</div>' +
@@ -1023,13 +1416,13 @@ function renderDriverTrackingView() {
         '<p class="page-subtitle">Centang satu atau banyak DO untuk Multi-DO Pick Up, Check-In/Out wajib GPS, atau input Gagal Kirim</p>' +
       '</div>' +
       '<div class="header-actions">' +
-        '<button type="button" class="btn btn-secondary btn-sm" onclick="fetchDriverTrackingData(true)">' + ICONS.refresh + '<span>Refresh Data</span></button>' +
+        renderSyncStatusBadge() +
       '</div>' +
     '</div>' +
     '<div class="tabs-bar">' + tabsHtml + '</div>' +
     '<div class="card" style="margin-bottom:14px;padding:12px">' +
       '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
-        '<input id="drv-search-input" class="form-control" style="flex:1;min-width:200px" type="text" value="' + escapeHtml(STATE.tracking.search) + '" placeholder="Cari Nomor DO atau Nama Customer..." onkeydown="if(event.key===\'Enter\'){event.preventDefault();searchDriverTracking();}" />' +
+        '<input id="drv-search-input" class="form-control" style="flex:1;min-width:200px" type="text" value="' + escapeHtml(STATE.tracking.search) + '" placeholder="Cari No DO, Plat Mobil, atau Customer..." onkeydown="if(event.key===\'Enter\'){event.preventDefault();searchDriverTracking();}" />' +
         '<button type="button" class="btn btn-navy" onclick="searchDriverTracking()">Cari</button>' +
       '</div>' +
     '</div>' +
@@ -1043,6 +1436,7 @@ function renderDriverTrackingView() {
 
 function changeDriverTrackingPage(newPage) {
   STATE.tracking.page = newPage;
+  STATE.tracking.selectedIds = {};
   fetchDriverTrackingData(false);
 }
 
@@ -1307,6 +1701,7 @@ function submitPickUp() {
 
   callGasApi('pickUpOrders', { idTrackings: idTrackings, photos: STATE.modalPhotos })
     .then(function () {
+      STATE.tracking.selectedIds = {};
       clearApiCache('tracking_');
       clearApiCache('orders_');
       clearApiCache('dashboard_');
@@ -1394,6 +1789,7 @@ function submitCheckIn() {
     photos: STATE.modalPhotos
   })
     .then(function () {
+      STATE.tracking.selectedIds = {};
       clearApiCache('tracking_');
       clearApiCache('orders_');
       clearApiCache('dashboard_');
@@ -1454,6 +1850,7 @@ function submitCheckOut() {
 
   callGasApi('checkOutOrders', { idTrackings: idTrackings, gps: STATE.modalGps })
     .then(function () {
+      STATE.tracking.selectedIds = {};
       clearApiCache('tracking_');
       clearApiCache('orders_');
       clearApiCache('dashboard_');
@@ -1532,6 +1929,7 @@ function submitFailedDelivery() {
     photos: STATE.modalPhotos
   })
     .then(function () {
+      STATE.tracking.selectedIds = {};
       clearApiCache('tracking_');
       clearApiCache('orders_');
       clearApiCache('dashboard_');
@@ -1619,8 +2017,9 @@ function openOrderDetailModal(idTracking) {
               (d.customerWhatsApp ? '<div style="margin-top:6px"><a class="btn btn-outline-emerald btn-sm" target="_blank" rel="noopener" href="' + escapeHtml(buildWhatsAppUrl(d.customerWhatsApp, '')) + '">' + ICONS.phone + '<span>WhatsApp Customer</span></a></div>' : '') +
             '</div>' +
             '<div class="card" style="padding:12px">' +
-              '<div class="cell-sub">Driver & Back Office</div>' +
+              '<div class="cell-sub">Driver, Mobil & Back Office</div>' +
               '<div class="cell-strong">' + escapeHtml(d.namaDriver) + '</div>' +
+              '<div class="cell-sub">Mobil: <strong>' + escapeHtml(d.platMobil || '-') + '</strong>' + (d.jenisMobil ? ' (' + escapeHtml(d.jenisMobil) + ')' : '') + '</div>' +
               '<div class="cell-sub">Diinput Back Office: ' + escapeHtml(d.namaBackOffice) + '</div>' +
               (d.driverWhatsApp ? '<div style="margin-top:6px"><a class="btn btn-outline-emerald btn-sm" target="_blank" rel="noopener" href="' + escapeHtml(buildWhatsAppUrl(d.driverWhatsApp, '')) + '">' + ICONS.phone + '<span>WhatsApp Driver</span></a></div>' : '') +
             '</div>' +
@@ -1666,25 +2065,45 @@ function renderReadonlyGallery(title, urls) {
 }
 
 // ============================================================================
-// MASTER KARYAWAN & MASTER CUSTOMER
+// MASTER KARYAWAN, MASTER CUSTOMER & MASTER MOBIL
 // ============================================================================
 
-function fetchKaryawanData(forceRefresh) {
+function fetchKaryawanData(forceRefresh, fetchOpts) {
+  var silent = Boolean(fetchOpts && fetchOpts.silent);
   var f = STATE.karyawan.filters;
   var payload = { page: STATE.karyawan.page, limit: STATE.karyawan.limit, search: f.search, divisi: f.divisi, status: f.status };
+  var cacheKey = 'karyawan_' + JSON.stringify(payload);
+  var servedFromCache = !forceRefresh && hasCacheEntry(cacheKey);
+  if (!servedFromCache) {
+    setSyncVisualState(true, false);
+  }
+
   callGasApi('listKaryawan', payload, {
-    cacheKey: 'karyawan_' + JSON.stringify(payload),
+    cacheKey: cacheKey,
     forceRefresh: Boolean(forceRefresh)
   }).then(function (data) {
+    var snap = JSON.stringify({ query: payload, data: data });
+    var changed = STATE.lastSnapshots.karyawan !== snap;
+
     STATE.karyawan.items = data.items || [];
     STATE.karyawan.total = data.total || 0;
     STATE.karyawan.page = data.page || 1;
     STATE.karyawan.totalPages = data.totalPages || 1;
-    if (STATE.currentPage === 'karyawan') {
+    STATE.lastSnapshots.karyawan = snap;
+
+    setSyncVisualState(false, !servedFromCache || Boolean(forceRefresh));
+
+    if (STATE.currentPage === 'karyawan' && (changed || (!silent && !servedFromCache))) {
       renderApp();
     }
+    if (servedFromCache && !silent) {
+      fetchKaryawanData(true, { silent: true });
+    }
   }).catch(function (err) {
-    showToast(err.message, 'error');
+    setSyncVisualState(false, false);
+    if (!silent) {
+      showToast(err.message, 'error');
+    }
   });
 }
 
@@ -1733,13 +2152,13 @@ function renderKaryawanView() {
         '<p class="page-subtitle">Kelola data karyawan beserta akun login divisi Back Office dan Driver</p>' +
       '</div>' +
       '<div class="header-actions">' +
-        '<button type="button" class="btn btn-secondary btn-sm" onclick="fetchKaryawanData(true)">' + ICONS.refresh + '<span>Refresh Data</span></button>' +
+        renderSyncStatusBadge() +
         '<button type="button" class="btn btn-primary" onclick="openKaryawanModal(\'\')">' + ICONS.plus + '<span>Tambah Karyawan</span></button>' +
       '</div>' +
     '</div>' +
     '<div class="card" style="margin-bottom:14px">' +
       '<div class="filter-bar" style="margin-bottom:0">' +
-        '<div class="form-group"><label class="form-label">Cari Karyawan</label><input id="kry-search" class="form-control" type="text" value="' + escapeHtml(f.search) + '" placeholder="Nama, ID, username..." /></div>' +
+        '<div class="form-group"><label class="form-label">Cari Karyawan</label><input id="kry-search" class="form-control" type="text" value="' + escapeHtml(f.search) + '" placeholder="Nama, ID, username..." onkeydown="if(event.key===\'Enter\'){event.preventDefault();applyKaryawanFilter();}" /></div>' +
         '<div class="form-group"><label class="form-label">Divisi</label><select id="kry-divisi" class="form-control"><option value="">Semua Divisi</option><option value="Back Office" ' + (f.divisi === 'Back Office' ? 'selected' : '') + '>Back Office</option><option value="Driver" ' + (f.divisi === 'Driver' ? 'selected' : '') + '>Driver</option></select></div>' +
         '<div class="form-group"><label class="form-label">Status</label><select id="kry-status" class="form-control"><option value="">Semua</option><option value="Aktif" ' + (f.status === 'Aktif' ? 'selected' : '') + '>Aktif</option><option value="Nonaktif" ' + (f.status === 'Nonaktif' ? 'selected' : '') + '>Nonaktif</option></select></div>' +
         '<div class="form-group"><button type="button" class="btn btn-navy" onclick="applyKaryawanFilter()">Filter</button></div>' +
@@ -1817,22 +2236,42 @@ function openKaryawanModal(idKaryawan) {
   });
 }
 
-function fetchCustomerData(forceRefresh) {
+function fetchCustomerData(forceRefresh, fetchOpts) {
+  var silent = Boolean(fetchOpts && fetchOpts.silent);
   var f = STATE.customer.filters;
   var payload = { page: STATE.customer.page, limit: STATE.customer.limit, search: f.search, status: f.status };
+  var cacheKey = 'customer_' + JSON.stringify(payload);
+  var servedFromCache = !forceRefresh && hasCacheEntry(cacheKey);
+  if (!servedFromCache) {
+    setSyncVisualState(true, false);
+  }
+
   callGasApi('listCustomer', payload, {
-    cacheKey: 'customer_' + JSON.stringify(payload),
+    cacheKey: cacheKey,
     forceRefresh: Boolean(forceRefresh)
   }).then(function (data) {
+    var snap = JSON.stringify({ query: payload, data: data });
+    var changed = STATE.lastSnapshots.customer !== snap;
+
     STATE.customer.items = data.items || [];
     STATE.customer.total = data.total || 0;
     STATE.customer.page = data.page || 1;
     STATE.customer.totalPages = data.totalPages || 1;
-    if (STATE.currentPage === 'customer') {
+    STATE.lastSnapshots.customer = snap;
+
+    setSyncVisualState(false, !servedFromCache || Boolean(forceRefresh));
+
+    if (STATE.currentPage === 'customer' && (changed || (!silent && !servedFromCache))) {
       renderApp();
     }
+    if (servedFromCache && !silent) {
+      fetchCustomerData(true, { silent: true });
+    }
   }).catch(function (err) {
-    showToast(err.message, 'error');
+    setSyncVisualState(false, false);
+    if (!silent) {
+      showToast(err.message, 'error');
+    }
   });
 }
 
@@ -1878,13 +2317,13 @@ function renderCustomerView() {
         '<p class="page-subtitle">Kelola data tujuan pengiriman, alamat lengkap, dan kontak penerima customer</p>' +
       '</div>' +
       '<div class="header-actions">' +
-        '<button type="button" class="btn btn-secondary btn-sm" onclick="fetchCustomerData(true)">' + ICONS.refresh + '<span>Refresh Data</span></button>' +
+        renderSyncStatusBadge() +
         '<button type="button" class="btn btn-primary" onclick="openCustomerModal(\'\')">' + ICONS.plus + '<span>Tambah Customer</span></button>' +
       '</div>' +
     '</div>' +
     '<div class="card" style="margin-bottom:14px">' +
       '<div class="filter-bar" style="margin-bottom:0">' +
-        '<div class="form-group"><label class="form-label">Cari Customer</label><input id="cst-search" class="form-control" type="text" value="' + escapeHtml(f.search) + '" placeholder="Nama customer, alamat, PIC..." /></div>' +
+        '<div class="form-group"><label class="form-label">Cari Customer</label><input id="cst-search" class="form-control" type="text" value="' + escapeHtml(f.search) + '" placeholder="Nama customer, alamat, PIC..." onkeydown="if(event.key===\'Enter\'){event.preventDefault();applyCustomerFilter();}" /></div>' +
         '<div class="form-group"><label class="form-label">Status</label><select id="cst-status" class="form-control"><option value="">Semua</option><option value="Aktif" ' + (f.status === 'Aktif' ? 'selected' : '') + '>Aktif</option><option value="Nonaktif" ' + (f.status === 'Nonaktif' ? 'selected' : '') + '>Nonaktif</option></select></div>' +
         '<div class="form-group"><button type="button" class="btn btn-navy" onclick="applyCustomerFilter()">Filter</button></div>' +
       '</div>' +
@@ -1955,11 +2394,182 @@ function openCustomerModal(idCustomer) {
   });
 }
 
+function fetchMobilData(forceRefresh, fetchOpts) {
+  var silent = Boolean(fetchOpts && fetchOpts.silent);
+  var f = STATE.mobil.filters;
+  var payload = { page: STATE.mobil.page, limit: STATE.mobil.limit, search: f.search, status: f.status };
+  var cacheKey = 'mobil_' + JSON.stringify(payload);
+  var servedFromCache = !forceRefresh && hasCacheEntry(cacheKey);
+  if (!servedFromCache) {
+    setSyncVisualState(true, false);
+  }
+
+  callGasApi('listMobil', payload, {
+    cacheKey: cacheKey,
+    forceRefresh: Boolean(forceRefresh)
+  }).then(function (data) {
+    var snap = JSON.stringify({ query: payload, data: data });
+    var changed = STATE.lastSnapshots.mobil !== snap;
+
+    STATE.mobil.items = data.items || [];
+    STATE.mobil.total = data.total || 0;
+    STATE.mobil.page = data.page || 1;
+    STATE.mobil.totalPages = data.totalPages || 1;
+    STATE.lastSnapshots.mobil = snap;
+
+    setSyncVisualState(false, !servedFromCache || Boolean(forceRefresh));
+
+    if (STATE.currentPage === 'mobil' && (changed || (!silent && !servedFromCache))) {
+      renderApp();
+    }
+    if (servedFromCache && !silent) {
+      fetchMobilData(true, { silent: true });
+    }
+  }).catch(function (err) {
+    setSyncVisualState(false, false);
+    if (!silent) {
+      showToast(err.message, 'error');
+    }
+  });
+}
+
+function applyMobilFilter() {
+  STATE.mobil.filters.search = document.getElementById('mbl-search').value.trim();
+  STATE.mobil.filters.status = document.getElementById('mbl-status').value;
+  STATE.mobil.page = 1;
+  fetchMobilData(false);
+}
+
+function changeMobilPage(p) {
+  STATE.mobil.page = p;
+  fetchMobilData(false);
+}
+
+function renderMobilView() {
+  var f = STATE.mobil.filters;
+  var items = STATE.mobil.items;
+  var rowsHtml = '';
+
+  if (!items.length) {
+    rowsHtml = '<tr><td colspan="5" class="empty-state">Tidak ada data mobil.</td></tr>';
+  } else {
+    for (var i = 0; i < items.length; i++) {
+      var m = items[i];
+      var badgeStatus = m.status === 'Aktif' ? '<span class="badge badge-selesai">Aktif</span>' : '<span class="badge badge-gagal">Nonaktif</span>';
+      rowsHtml +=
+        '<tr>' +
+          '<td><div class="cell-strong">' + escapeHtml(m.idMobil) + '</div></td>' +
+          '<td><div class="cell-strong">' + escapeHtml(m.platMobil) + '</div></td>' +
+          '<td>' + escapeHtml(m.jenisMobil || '-') + '</td>' +
+          '<td>' + badgeStatus + '</td>' +
+          '<td><button type="button" class="btn btn-secondary btn-sm" onclick="openMobilModal(\'' + escapeHtml(m.idMobil) + '\')">' + ICONS.edit + '<span>Edit</span></button></td>' +
+        '</tr>';
+    }
+  }
+
+  return (
+    '<div class="page-header">' +
+      '<div>' +
+        '<h2 class="page-title">Master Mobil</h2>' +
+        '<p class="page-subtitle">Kelola data plat nomor kendaraan dan jenis mobil untuk pengiriman Delivery Order</p>' +
+      '</div>' +
+      '<div class="header-actions">' +
+        renderSyncStatusBadge() +
+        '<button type="button" class="btn btn-primary" onclick="openMobilModal(\'\')">' + ICONS.plus + '<span>Tambah Mobil</span></button>' +
+      '</div>' +
+    '</div>' +
+    '<div class="card" style="margin-bottom:14px">' +
+      '<div class="filter-bar" style="margin-bottom:0">' +
+        '<div class="form-group"><label class="form-label">Cari Plat / Jenis Mobil</label><input id="mbl-search" class="form-control" type="text" value="' + escapeHtml(f.search) + '" placeholder="Plat mobil, jenis mobil, ID..." onkeydown="if(event.key===\'Enter\'){event.preventDefault();applyMobilFilter();}" /></div>' +
+        '<div class="form-group"><label class="form-label">Status</label><select id="mbl-status" class="form-control"><option value="">Semua</option><option value="Aktif" ' + (f.status === 'Aktif' ? 'selected' : '') + '>Aktif</option><option value="Nonaktif" ' + (f.status === 'Nonaktif' ? 'selected' : '') + '>Nonaktif</option></select></div>' +
+        '<div class="form-group"><button type="button" class="btn btn-navy" onclick="applyMobilFilter()">Filter</button></div>' +
+      '</div>' +
+    '</div>' +
+    '<div class="table-card">' +
+      '<div class="table-wrap"><table class="data-table"><thead><tr><th>ID Mobil</th><th>Plat Mobil</th><th>Jenis Mobil</th><th>Status</th><th>Aksi</th></tr></thead><tbody>' + rowsHtml + '</tbody></table></div>' +
+      renderPaginationBar(STATE.mobil.page, STATE.mobil.totalPages, STATE.mobil.total, 'changeMobilPage') +
+    '</div>'
+  );
+}
+
+function openMobilModal(idMobil) {
+  var item = null;
+  if (idMobil) {
+    for (var i = 0; i < STATE.mobil.items.length; i++) {
+      if (STATE.mobil.items[i].idMobil === idMobil) {
+        item = STATE.mobil.items[i];
+        break;
+      }
+    }
+  }
+  var isEdit = Boolean(item);
+
+  var html =
+    '<div class="modal-header"><h3 class="modal-title">' + (isEdit ? 'Ubah Data Mobil' : 'Tambah Mobil Baru') + '</h3><button type="button" class="modal-close" onclick="closeModal()">' + ICONS.x + '</button></div>' +
+    '<form id="mobil-form">' +
+      '<div class="modal-body">' +
+        '<div class="form-group">' +
+          '<label class="form-label" for="mbl-plat">Plat Mobil <span class="req">*</span></label>' +
+          '<input id="mbl-plat" class="form-control" type="text" style="text-transform:uppercase" value="' + escapeHtml(item ? item.platMobil : '') + '" placeholder="Contoh: B 9123 PIF" required />' +
+        '</div>' +
+        '<div class="form-group">' +
+          '<label class="form-label" for="mbl-jenis">Jenis Mobil <span class="req">*</span></label>' +
+          '<input id="mbl-jenis" class="form-control" type="text" list="jenis-mobil-suggestions" value="' + escapeHtml(item ? item.jenisMobil : '') + '" placeholder="Contoh: Blind Van, Pick Up Box, Engkel CDE, CDD Box..." required />' +
+          '<datalist id="jenis-mobil-suggestions">' +
+            '<option value="Blind Van"></option>' +
+            '<option value="Pick Up Box"></option>' +
+            '<option value="Pick Up Bak"></option>' +
+            '<option value="Gran Max Box"></option>' +
+            '<option value="Engkel Box (CDE)"></option>' +
+            '<option value="CDD Box"></option>' +
+            '<option value="Fuso Box"></option>' +
+            '<option value="Wingbox"></option>' +
+          '</datalist>' +
+        '</div>' +
+        '<div class="form-group">' +
+          '<label class="form-label" for="mbl-status">Status</label>' +
+          '<select id="mbl-status" class="form-control"><option value="Aktif" ' + (!item || item.status === 'Aktif' ? 'selected' : '') + '>Aktif</option><option value="Nonaktif" ' + (item && item.status === 'Nonaktif' ? 'selected' : '') + '>Nonaktif</option></select>' +
+        '</div>' +
+      '</div>' +
+      '<div class="modal-footer">' +
+        '<button type="button" class="btn btn-secondary" onclick="closeModal()">Batal</button>' +
+        '<button id="mbl-save-btn" type="submit" class="btn btn-primary">Simpan Mobil</button>' +
+      '</div>' +
+    '</form>';
+
+  openModal(html);
+
+  document.getElementById('mobil-form').addEventListener('submit', function (ev) {
+    ev.preventDefault();
+    var btn = document.getElementById('mbl-save-btn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span><span>Menyimpan...</span>';
+
+    callGasApi('saveMobil', {
+      idMobil: item ? item.idMobil : '',
+      platMobil: document.getElementById('mbl-plat').value.trim().toUpperCase(),
+      jenisMobil: document.getElementById('mbl-jenis').value.trim(),
+      status: document.getElementById('mbl-status').value
+    }).then(function () {
+      clearApiCache('mobil_');
+      clearApiCache('dropdowns');
+      closeModal();
+      fetchMobilData(true);
+      showToast('Data mobil berhasil disimpan.', 'success');
+    }).catch(function (err) {
+      showToast(err.message, 'error');
+      btn.disabled = false;
+      btn.textContent = 'Simpan Mobil';
+    });
+  });
+}
+
 // ============================================================================
 // LAPORAN DELIVERY (FILTER BACKEND + EXPORT PDF & EXCEL)
 // ============================================================================
 
-function fetchReportData(forceRefresh) {
+function fetchReportData(forceRefresh, fetchOpts) {
+  var silent = Boolean(fetchOpts && fetchOpts.silent);
   var f = STATE.report.filters;
   var payload = {
     page: STATE.report.page,
@@ -1972,20 +2582,39 @@ function fetchReportData(forceRefresh) {
     search: f.search,
     exportAll: false
   };
+  var cacheKey = 'report_' + JSON.stringify(payload);
+  var servedFromCache = !forceRefresh && hasCacheEntry(cacheKey);
+  if (!servedFromCache) {
+    setSyncVisualState(true, false);
+  }
+
   callGasApi('getDeliveryReport', payload, {
-    cacheKey: 'report_' + JSON.stringify(payload),
+    cacheKey: cacheKey,
     forceRefresh: Boolean(forceRefresh)
   }).then(function (data) {
+    var snap = JSON.stringify({ query: payload, data: data });
+    var changed = STATE.lastSnapshots.report !== snap;
+
     STATE.report.items = data.items || [];
     STATE.report.total = data.total || 0;
     STATE.report.page = data.page || 1;
     STATE.report.totalPages = data.totalPages || 1;
     STATE.report.summary = data.summary || STATE.report.summary;
-    if (STATE.currentPage === 'report') {
+    STATE.lastSnapshots.report = snap;
+
+    setSyncVisualState(false, !servedFromCache || Boolean(forceRefresh));
+
+    if (STATE.currentPage === 'report' && (changed || (!silent && !servedFromCache))) {
       renderApp();
     }
+    if (servedFromCache && !silent) {
+      fetchReportData(true, { silent: true });
+    }
   }).catch(function (err) {
-    showToast(err.message, 'error');
+    setSyncVisualState(false, false);
+    if (!silent) {
+      showToast(err.message, 'error');
+    }
   });
 }
 
@@ -2057,11 +2686,14 @@ function renderReportView() {
   } else {
     for (var i = 0; i < items.length; i++) {
       var r = items[i];
+      var repMobilText = r.platMobil
+        ? escapeHtml(r.platMobil) + (r.jenisMobil ? ' (' + escapeHtml(r.jenisMobil) + ')' : '')
+        : '-';
       rowsHtml +=
         '<tr>' +
           '<td><div class="cell-strong">' + escapeHtml(r.nomorDO) + '</div><div class="cell-sub">' + escapeHtml(r.idTracking) + ' · #' + (r.percobaanKe || 1) + '</div></td>' +
           '<td>' + formatDateID(r.tanggalDO) + '</td>' +
-          '<td><div class="cell-strong">' + escapeHtml(r.namaCustomer) + '</div><div class="cell-sub">Driver: ' + escapeHtml(r.namaDriver) + '</div></td>' +
+          '<td><div class="cell-strong">' + escapeHtml(r.namaCustomer) + '</div><div class="cell-sub">Driver: ' + escapeHtml(r.namaDriver) + '</div><div class="cell-sub">Mobil: ' + repMobilText + '</div></td>' +
           '<td>' + getStatusBadgeHtml(r.status) + '</td>' +
           '<td><div class="cell-sub">PickUp: ' + (r.waktuPickUp ? formatDateTimeID(r.waktuPickUp) : '-') + '</div><div class="cell-sub">Check-In: ' + (r.waktuCheckIn ? formatDateTimeID(r.waktuCheckIn) : '-') + '</div><div class="cell-sub">Check-Out: ' + (r.waktuCheckOut ? formatDateTimeID(r.waktuCheckOut) : '-') + '</div></td>' +
           '<td><div class="cell-strong">' + escapeHtml(r.namaPenerima || '-') + '</div><div class="cell-sub">' + escapeHtml(r.status === 'Gagal Kirim' ? 'Gagal: ' + r.alasanGagalKirim : (r.keterangan || '-')) + '</div></td>' +
@@ -2074,10 +2706,10 @@ function renderReportView() {
     '<div class="page-header">' +
       '<div>' +
         '<h2 class="page-title">Laporan Delivery Order</h2>' +
-        '<p class="page-subtitle">Filter laporan pengiriman dan unduh dokumen PDF atau Excel (.xlsx) lengkap beserta link GPS</p>' +
+        '<p class="page-subtitle">Filter laporan pengiriman dan unduh dokumen PDF atau Excel (.xlsx) lengkap beserta link GPS & armada</p>' +
       '</div>' +
       '<div class="header-actions">' +
-        '<button type="button" class="btn btn-secondary btn-sm" onclick="fetchReportData(true)">' + ICONS.refresh + '<span>Refresh Data</span></button>' +
+        renderSyncStatusBadge() +
         '<button type="button" class="btn btn-outline-danger" onclick="triggerExportReport(\'pdf\')">' + ICONS.download + '<span>Export PDF</span></button>' +
         '<button type="button" class="btn btn-emerald" onclick="triggerExportReport(\'excel\')">' + ICONS.download + '<span>Export Excel</span></button>' +
       '</div>' +
@@ -2094,12 +2726,12 @@ function renderReportView() {
         '<div class="form-group"><label class="form-label">Driver</label><select id="rep-driver" class="form-control">' + drvOpts + '</select></div>' +
         '<div class="form-group"><label class="form-label">Customer</label><select id="rep-customer" class="form-control">' + cstOpts + '</select></div>' +
         '<div class="form-group"><label class="form-label">Status</label><select id="rep-status" class="form-control">' + stOpts + '</select></div>' +
-        '<div class="form-group"><label class="form-label">Cari Teks</label><input id="rep-search" class="form-control" type="text" value="' + escapeHtml(f.search) + '" placeholder="No DO / Penerima..." /></div>' +
+        '<div class="form-group"><label class="form-label">Cari Teks</label><input id="rep-search" class="form-control" type="text" value="' + escapeHtml(f.search) + '" placeholder="No DO / Plat / Penerima..." onkeydown="if(event.key===\'Enter\'){event.preventDefault();applyReportFilter();}" /></div>' +
         '<div class="form-group"><button type="button" class="btn btn-navy" style="width:100%" onclick="applyReportFilter()">Tampilkan</button></div>' +
       '</div>' +
     '</div>' +
     '<div class="table-card">' +
-      '<div class="table-wrap"><table class="data-table"><thead><tr><th>Nomor DO / ID</th><th>Tgl DO</th><th>Customer & Driver</th><th>Status</th><th>Waktu Pengiriman</th><th>Penerima / Alasan Gagal</th><th>Aksi</th></tr></thead><tbody>' + rowsHtml + '</tbody></table></div>' +
+      '<div class="table-wrap"><table class="data-table"><thead><tr><th>Nomor DO / ID</th><th>Tgl DO</th><th>Customer, Driver & Mobil</th><th>Status</th><th>Waktu Pengiriman</th><th>Penerima / Alasan Gagal</th><th>Aksi</th></tr></thead><tbody>' + rowsHtml + '</tbody></table></div>' +
       renderPaginationBar(STATE.report.page, STATE.report.totalPages, STATE.report.total, 'changeReportPage') +
     '</div>'
   );

@@ -45,16 +45,20 @@ function exportReportToPdf(items, summary, filters) {
       'Ke',
       'Customer',
       'Driver',
+      'Mobil',
       'Status',
       'Pick Up',
       'Check-In & Penerima',
       'Check-Out',
-      'Keterangan / Alasan Gagal'
+      'Ket. / Alasan Gagal'
     ]];
 
     var body = [];
     for (var i = 0; i < items.length; i++) {
       var d = items[i];
+      var mobilInfo = d.platMobil
+        ? (d.platMobil + (d.jenisMobil ? '\n' + d.jenisMobil : ''))
+        : '-';
       var checkInInfo = d.waktuCheckIn
         ? formatDateTimeID(d.waktuCheckIn) + '\nPenerima: ' + (d.namaPenerima || '-') +
           (d.checkInLat !== null ? '\nGPS: ' + d.checkInLat + ', ' + d.checkInLng : '')
@@ -79,6 +83,7 @@ function exportReportToPdf(items, summary, filters) {
         '#' + (d.percobaanKe || 1),
         d.namaCustomer,
         d.namaDriver,
+        mobilInfo,
         d.status,
         d.waktuPickUp ? formatDateTimeID(d.waktuPickUp) : '-',
         checkInInfo,
@@ -94,8 +99,8 @@ function exportReportToPdf(items, summary, filters) {
         body: body,
         theme: 'grid',
         styles: {
-          fontSize: 7.3,
-          cellPadding: 2.2,
+          fontSize: 7.0,
+          cellPadding: 2.0,
           valign: 'top',
           textColor: [15, 23, 42]
         },
@@ -105,18 +110,19 @@ function exportReportToPdf(items, summary, filters) {
           fontStyle: 'bold'
         },
         columnStyles: {
-          0: { cellWidth: 8 },
-          1: { cellWidth: 25 },
-          2: { cellWidth: 19 },
-          3: { cellWidth: 24 },
-          4: { cellWidth: 8 },
-          5: { cellWidth: 30 },
-          6: { cellWidth: 24 },
+          0: { cellWidth: 7 },
+          1: { cellWidth: 23 },
+          2: { cellWidth: 17 },
+          3: { cellWidth: 22 },
+          4: { cellWidth: 7 },
+          5: { cellWidth: 26 },
+          6: { cellWidth: 20 },
           7: { cellWidth: 22 },
-          8: { cellWidth: 23 },
-          9: { cellWidth: 34 },
-          10: { cellWidth: 27 },
-          11: { cellWidth: 33 }
+          8: { cellWidth: 20 },
+          9: { cellWidth: 20 },
+          10: { cellWidth: 32 },
+          11: { cellWidth: 25 },
+          12: { cellWidth: 36 }
         },
         margin: { left: 10, right: 10 }
       });
@@ -136,6 +142,9 @@ function exportReportToPdf(items, summary, filters) {
   var rowsHtml = '';
   for (var j = 0; j < items.length; j++) {
     var row = items[j];
+    var rowMobil = row.platMobil
+      ? escapeHtml(row.platMobil) + (row.jenisMobil ? '<br/><small>' + escapeHtml(row.jenisMobil) + '</small>' : '')
+      : '-';
     rowsHtml += '<tr>' +
       '<td>' + (j + 1) + '</td>' +
       '<td>' + escapeHtml(row.idTracking) + '</td>' +
@@ -143,6 +152,7 @@ function exportReportToPdf(items, summary, filters) {
       '<td>' + escapeHtml(row.nomorDO) + ' (#' + (row.percobaanKe || 1) + ')</td>' +
       '<td>' + escapeHtml(row.namaCustomer) + '</td>' +
       '<td>' + escapeHtml(row.namaDriver) + '</td>' +
+      '<td>' + rowMobil + '</td>' +
       '<td>' + escapeHtml(row.status) + '</td>' +
       '<td>' + escapeHtml(row.namaPenerima || '-') + '</td>' +
       '<td>' + escapeHtml(row.status === 'Gagal Kirim' ? row.alasanGagalKirim : (row.keterangan || '-')) + '</td>' +
@@ -152,7 +162,7 @@ function exportReportToPdf(items, summary, filters) {
     '<style>body{font-family:sans-serif;font-size:11px;padding:16px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #cbd5e1;padding:6px;text-align:left}th{background:#0f172a;color:#fff}</style>' +
     '</head><body><h2>Laporan Tracking Delivery Order - PIF</h2>' +
     '<p>Periode: ' + escapeHtml(periodText) + ' | Dicetak: ' + escapeHtml(printedAt) + '</p>' +
-    '<table><thead><tr><th>No</th><th>ID Tracking</th><th>Tgl DO</th><th>Nomor DO</th><th>Customer</th><th>Driver</th><th>Status</th><th>Penerima</th><th>Keterangan / Alasan Gagal</th></tr></thead>' +
+    '<table><thead><tr><th>No</th><th>ID Tracking</th><th>Tgl DO</th><th>Nomor DO</th><th>Customer</th><th>Driver</th><th>Mobil</th><th>Status</th><th>Penerima</th><th>Keterangan / Alasan Gagal</th></tr></thead>' +
     '<tbody>' + rowsHtml + '</tbody></table></body></html>';
   win.document.write(htmlDoc);
   win.document.close();
@@ -179,6 +189,8 @@ function exportReportToExcel(items, summary, filters) {
       'Nama Customer': d.namaCustomer,
       'Alamat Customer': d.customerAlamat || '-',
       'Nama Driver': d.namaDriver,
+      'Plat Mobil': d.platMobil || '-',
+      'Jenis Mobil': d.jenisMobil || '-',
       'Diinput Oleh (Back Office)': d.namaBackOffice,
       'Status': d.status,
       'ID Batch Pick Up': d.idPickUpBatch || '-',
@@ -207,7 +219,7 @@ function exportReportToExcel(items, summary, filters) {
     var wsData = window.XLSX.utils.json_to_sheet(rows);
     wsData['!cols'] = [
       { wch: 5 }, { wch: 18 }, { wch: 13 }, { wch: 20 }, { wch: 12 }, { wch: 18 },
-      { wch: 24 }, { wch: 30 }, { wch: 20 }, { wch: 20 }, { wch: 18 }, { wch: 18 },
+      { wch: 24 }, { wch: 30 }, { wch: 20 }, { wch: 16 }, { wch: 18 }, { wch: 20 }, { wch: 18 }, { wch: 18 },
       { wch: 18 }, { wch: 40 }, { wch: 18 }, { wch: 22 }, { wch: 35 }, { wch: 20 },
       { wch: 28 }, { wch: 40 }, { wch: 18 }, { wch: 22 }, { wch: 35 }, { wch: 16 },
       { wch: 18 }, { wch: 30 }, { wch: 22 }, { wch: 35 }, { wch: 40 }
