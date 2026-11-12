@@ -128,7 +128,15 @@ function exportReportToPdf(items, summary, filters) {
       });
     }
 
-    doc.save('Laporan_Delivery_PIF_' + getTodayYMD() + '.pdf');
+    var pdfName = 'Laporan_Delivery_PIF_' + getTodayYMD() + '.pdf';
+    if (window.AndroidApp && typeof window.AndroidApp.saveBase64File === 'function') {
+      var pdfDataUri = doc.output('datauristring');
+      window.AndroidApp.saveBase64File(pdfDataUri, pdfName, 'application/pdf');
+      showToast('Mengunduh PDF laporan ke folder Download HP...', 'success');
+      return;
+    }
+
+    doc.save(pdfName);
     showToast('File PDF laporan berhasil diunduh.', 'success');
     return;
   }
@@ -240,7 +248,19 @@ function exportReportToExcel(items, summary, filters) {
     wsSummary['!cols'] = [{ wch: 34 }, { wch: 36 }];
     window.XLSX.utils.book_append_sheet(wb, wsSummary, 'Ringkasan KPI');
 
-    window.XLSX.writeFile(wb, 'Laporan_Delivery_PIF_' + getTodayYMD() + '.xlsx');
+    var xlsxName = 'Laporan_Delivery_PIF_' + getTodayYMD() + '.xlsx';
+    if (window.AndroidApp && typeof window.AndroidApp.saveBase64File === 'function') {
+      var xlsxBase64 = window.XLSX.write(wb, { bookType: 'xlsx', type: 'base64' });
+      window.AndroidApp.saveBase64File(
+        xlsxBase64,
+        xlsxName,
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      );
+      showToast('Mengunduh Excel laporan ke folder Download HP...', 'success');
+      return;
+    }
+
+    window.XLSX.writeFile(wb, xlsxName);
     showToast('File Excel (.xlsx) laporan berhasil diunduh.', 'success');
     return;
   }
@@ -256,10 +276,19 @@ function exportReportToExcel(items, summary, filters) {
     }
     csvLines.push(lineVals.join(','));
   }
-  var blob = new Blob(['\uFEFF' + csvLines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+  var csvName = 'Laporan_Delivery_PIF_' + getTodayYMD() + '.csv';
+  var csvContent = '\uFEFF' + csvLines.join('\n');
+  if (window.AndroidApp && typeof window.AndroidApp.saveBase64File === 'function') {
+    var csvBase64 = btoa(unescape(encodeURIComponent(csvContent)));
+    window.AndroidApp.saveBase64File(csvBase64, csvName, 'text/csv');
+    showToast('Library Excel offline — menyimpan CSV ke folder Download HP...', 'info');
+    return;
+  }
+
+  var blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
   var link = document.createElement('a');
   link.href = URL.createObjectURL(blob);
-  link.download = 'Laporan_Delivery_PIF_' + getTodayYMD() + '.csv';
+  link.download = csvName;
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);

@@ -1609,13 +1609,19 @@ function renderGpsStatusBox() {
       '</div>'
     );
   }
+  var apkSettingsBtn = (window.AndroidApp && typeof window.AndroidApp.openAppSettings === 'function')
+    ? '<button type="button" class="btn btn-secondary btn-sm" onclick="window.AndroidApp.openAppSettings()">Buka Setelan Izin APK</button>'
+    : '';
   return (
     '<div id="gps-status-box" class="gps-box error">' +
       '<div>' +
         '<div class="cell-strong" style="color:var(--rose)">GPS Belum Aktif / Gagal Diambil</div>' +
         '<div class="cell-sub">' + escapeHtml(STATE.modalGpsError || 'Wajib nyalakan GPS perangkat sebelum menyimpan.') + '</div>' +
       '</div>' +
-      '<button type="button" class="btn btn-outline-danger btn-sm" onclick="acquireModalGps()">Aktifkan & Ambil GPS</button>' +
+      '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
+        apkSettingsBtn +
+        '<button type="button" class="btn btn-outline-danger btn-sm" onclick="acquireModalGps()">Aktifkan & Ambil GPS</button>' +
+      '</div>' +
     '</div>'
   );
 }

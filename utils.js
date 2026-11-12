@@ -178,39 +178,70 @@ function compressImageFile(file, maxDim, quality) {
 
 function requestMandatoryGps() {
   return new Promise(function (resolve, reject) {
-    if (!navigator.geolocation) {
-      reject(new Error('Perangkat atau browser ini tidak mendukung GPS (Geolocation).'));
+    if (window.isSecureContext === false) {
+      reject(new Error('Akses GPS diblokir karena alamat web bukan HTTPS yang aman.'));
       return;
     }
+    if (!navigator.geolocation) {
+      reject(new Error('Perangkat atau aplikasi ini tidak mendukung GPS (Geolocation).'));
+      return;
+    }
+
+    function handleSuccess(pos) {
+      var lat = pos.coords.latitude;
+      var lng = pos.coords.longitude;
+      var accuracy = pos.coords.accuracy;
+      if (!isFinite(lat) || !isFinite(lng) || (lat === 0 && lng === 0)) {
+        reject(new Error('Koordinat GPS belum akurat. Nyalakan GPS perangkat lalu coba lagi.'));
+        return;
+      }
+      resolve({
+        lat: Number(lat.toFixed(7)),
+        lng: Number(lng.toFixed(7)),
+        accuracy: Math.round(accuracy || 0)
+      });
+    }
+
+    function buildPermissionDeniedMessage(err) {
+      var hasApkBridge = Boolean(window.AndroidApp && typeof window.AndroidApp.isAndroidApk === 'function');
+      if (hasApkBridge) {
+        return 'Izin lokasi ditolak di HP! Ketuk "Buka Setelan Izin APK" -> Izin -> Lokasi -> pilih "Izinkan saat aplikasi digunakan", dan pastikan GPS HP menyala.';
+      }
+      var raw = err && err.message ? ' (' + err.message + ')' : '';
+      return 'Izin lokasi ditolak' + raw + '. Jika memakai APK lama, pembungkus APK tidak mendukung GPS; gunakan APK resmi terbaru atau buka lewat Chrome HP & pilih Izinkan Lokasi.';
+    }
+
     navigator.geolocation.getCurrentPosition(
-      function (pos) {
-        var lat = pos.coords.latitude;
-        var lng = pos.coords.longitude;
-        var accuracy = pos.coords.accuracy;
-        if (!isFinite(lat) || !isFinite(lng) || (lat === 0 && lng === 0)) {
-          reject(new Error('Koordinat GPS belum akurat. Nyalakan GPS perangkat lalu coba lagi.'));
+      handleSuccess,
+      function (err) {
+        if (err && err.code === 1) {
+          reject(new Error(buildPermissionDeniedMessage(err)));
           return;
         }
-        resolve({
-          lat: Number(lat.toFixed(7)),
-          lng: Number(lng.toFixed(7)),
-          accuracy: Math.round(accuracy || 0)
-        });
-      },
-      function (err) {
-        var msg = 'Gagal mengambil lokasi GPS.';
-        if (err.code === 1) {
-          msg = 'Izin lokasi ditolak! Aktifkan GPS HP & pilih "Izinkan / Allow" lokasi untuk browser ini.';
-        } else if (err.code === 2) {
-          msg = 'Sinyal GPS tidak ditemukan. Pastikan Lokasi (GPS) di HP sudah menyala.';
-        } else if (err.code === 3) {
-          msg = 'Waktu tunggu sinyal GPS habis. Coba bergerak ke area terbuka lalu tekan Ambil GPS Ulang.';
-        }
-        reject(new Error(msg));
+        // Fallback akurasi jaringan bila sinyal satelit GPS lemah (mis. di dalam gudang)
+        navigator.geolocation.getCurrentPosition(
+          handleSuccess,
+          function (err2) {
+            var msg = 'Gagal mengambil lokasi GPS.';
+            if (err2 && err2.code === 1) {
+              msg = buildPermissionDeniedMessage(err2);
+            } else if (err2 && err2.code === 2) {
+              msg = 'Sinyal GPS tidak ditemukan. Pastikan Lokasi (GPS) di HP sudah menyala.';
+            } else if (err2 && err2.code === 3) {
+              msg = 'Waktu tunggu sinyal GPS habis. Coba bergerak ke area terbuka lalu tekan Ambil GPS Ulang.';
+            }
+            reject(new Error(msg));
+          },
+          {
+            enableHighAccuracy: false,
+            timeout: 12000,
+            maximumAge: 15000
+          }
+        );
       },
       {
         enableHighAccuracy: true,
-        timeout: 15000,
+        timeout: 12000,
         maximumAge: 0
       }
     );
