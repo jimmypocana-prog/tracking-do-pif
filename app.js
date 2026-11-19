@@ -2952,7 +2952,23 @@ function renderAktivitasDriverView() {
 // MODAL CHECK-OUT (BERANGKAT)
 // ----------------------------------------------------------------------------
 
+function renderPhotoSlotsHtml(labelText, isOptional) {
+  return renderPhotoUploaderSection(labelText, isOptional);
+}
+
 function openCheckOutAktivitasModal() {
+  if (!STATE.dropdowns || !STATE.dropdowns.mobils || !STATE.dropdowns.mobils.length) {
+    ensureDropdownsLoaded(true).then(function () {
+      openCheckOutAktivitasModalContent_();
+    }).catch(function () {
+      openCheckOutAktivitasModalContent_();
+    });
+    return;
+  }
+  openCheckOutAktivitasModalContent_();
+}
+
+function openCheckOutAktivitasModalContent_() {
   STATE.modalPhotos = [];
   STATE.modalGps = null;
   STATE.modalGpsLoading = false;
@@ -2981,7 +2997,7 @@ function openCheckOutAktivitasModal() {
         '<input id="akt-out-km" class="form-control" type="number" min="0" placeholder="Contoh: 125000" />' +
         '<span class="form-hint">Ketik angka kilometer yang tertera di speedometer saat mobil hendak berangkat.</span>' +
       '</div>' +
-      renderPhotoSlotsHtml('Foto Kilometer Awal (Speedometer)', false) +
+      renderPhotoUploaderSection('Foto Kilometer Awal (Speedometer)', false) +
       '<div class="form-group">' +
         '<label class="form-label">Koordinat GPS Keberangkatan <span class="req">*</span></label>' +
         renderGpsStatusBox() +
@@ -3101,7 +3117,7 @@ function openBbmModal() {
         '<label class="form-label">Jenis BBM</label>' +
         '<select id="akt-bbm-jenis" class="form-control">' + jenisOpts + '</select>' +
       '</div>' +
-      renderPhotoSlotsHtml('Foto Struk SPBU / Dispenser / Meteran', false) +
+      renderPhotoUploaderSection('Foto Struk SPBU / Dispenser / Meteran', false) +
       '<div class="form-group">' +
         '<label class="form-label">Koordinat GPS Lokasi SPBU <span class="req">*</span></label>' +
         renderGpsStatusBox() +
@@ -3214,7 +3230,7 @@ function openCheckInAktivitasModal() {
         '<span>Total Jarak Tempuh Sesi Ini:</span>' +
         '<span id="akt-in-calc-display" class="km-calc-number">0 KM</span>' +
       '</div>' +
-      renderPhotoSlotsHtml('Foto Kilometer Akhir (Speedometer)', false) +
+      renderPhotoUploaderSection('Foto Kilometer Akhir (Speedometer)', false) +
       '<div class="form-group">' +
         '<label class="form-label">Koordinat GPS Kantor <span class="req">*</span></label>' +
         renderGpsStatusBox() +
