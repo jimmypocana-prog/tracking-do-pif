@@ -679,6 +679,33 @@ table.data-table {
   border-color: #bfdbfe;
 }
 
+.badge-via {
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  font-size: 10px;
+  padding: 2px 7px;
+  border-radius: var(--radius-pill);
+}
+
+.badge-via-driver {
+  background: var(--primary-soft);
+  color: var(--primary);
+  border: 1px solid #bfdbfe;
+}
+
+.badge-via-kurir {
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #fde68a;
+}
+
+.badge-via-online {
+  background: #f3e8ff;
+  color: #6b21a8;
+  border: 1px solid #e9d5ff;
+}
+
 /* ==================== DRIVER TRACKING CARDS & TABS ==================== */
 .tabs-bar {
   display: flex;
