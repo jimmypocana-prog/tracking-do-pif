@@ -6,7 +6,8 @@
 var STATE = {
   session: getSavedSession(),
   currentPage: 'dashboard',
-  dropdowns: { drivers: [], customers: [], mobils: [] },
+  dropdowns: { drivers: [], customers: [], mobils: [], bbms: [] },
+  reportActiveTab: 'orders', // 'orders' or 'aktivitas'
 
   autoSyncTimer: null,
   inFlightSync: false,
@@ -60,6 +61,15 @@ var STATE = {
     total: 0,
     page: 1,
     limit: 12,
+    totalPages: 1,
+    filters: { search: '', status: '' }
+  },
+
+  bbmMaster: {
+    items: [],
+    total: 0,
+    page: 1,
+    limit: 15,
     totalPages: 1,
     filters: { search: '', status: '' }
   },
@@ -329,11 +339,12 @@ function renderApp() {
 
     overflowItems =
       '<button type="button" class="dropdown-item mobile-only-nav ' + (STATE.currentPage === 'monitor' ? 'active' : '') + '" onclick="navigateTo(\'monitor\')">' + ICONS.mapPin + '<span>Tracking Monitor</span></button>' +
-      '<button type="button" class="dropdown-item mobile-only-nav ' + (STATE.currentPage === 'report' ? 'active' : '') + '" onclick="navigateTo(\'report\')">' + ICONS.fileText + '<span>Laporan Delivery</span></button>' +
-      '<button type="button" class="dropdown-item ' + (STATE.currentPage === 'laporan-aktivitas' ? 'active' : '') + '" onclick="navigateTo(\'laporan-aktivitas\')">' + ICONS.truck + '<span>Laporan Aktivitas Driver</span></button>' +
+      '<button type="button" class="dropdown-item ' + (STATE.currentPage === 'report' && STATE.reportActiveTab === 'orders' ? 'active' : '') + '" onclick="switchReportTab(\'orders\')">' + ICONS.fileText + '<span>Laporan Delivery Order</span></button>' +
+      '<button type="button" class="dropdown-item ' + (STATE.currentPage === 'report' && STATE.reportActiveTab === 'aktivitas' ? 'active' : '') + '" onclick="switchReportTab(\'aktivitas\')">' + ICONS.truck + '<span>Laporan Aktivitas Driver</span></button>' +
       '<button type="button" class="dropdown-item ' + (STATE.currentPage === 'karyawan' ? 'active' : '') + '" onclick="navigateTo(\'karyawan\')">' + ICONS.users + '<span>Master Karyawan</span></button>' +
       '<button type="button" class="dropdown-item ' + (STATE.currentPage === 'customer' ? 'active' : '') + '" onclick="navigateTo(\'customer\')">' + ICONS.building + '<span>Master Customer</span></button>' +
       '<button type="button" class="dropdown-item ' + (STATE.currentPage === 'mobil' ? 'active' : '') + '" onclick="navigateTo(\'mobil\')">' + ICONS.truck + '<span>Master Mobil</span></button>' +
+      '<button type="button" class="dropdown-item ' + (STATE.currentPage === 'bbm-master' ? 'active' : '') + '" onclick="navigateTo(\'bbm-master\')">' + ICONS.fuel + '<span>Master BBM</span></button>' +
       '<button type="button" class="dropdown-item danger" onclick="handleLogout()">' + ICONS.logout + '<span>Keluar</span></button>';
   } else {
     navPrimary =
@@ -360,12 +371,15 @@ function renderApp() {
     pageBody = renderCustomerView();
   } else if (STATE.currentPage === 'mobil') {
     pageBody = renderMobilView();
+  } else if (STATE.currentPage === 'bbm-master') {
+    pageBody = renderMasterBbmView();
   } else if (STATE.currentPage === 'report') {
     pageBody = renderReportView();
   } else if (STATE.currentPage === 'aktivitas-driver') {
     pageBody = renderAktivitasDriverView();
   } else if (STATE.currentPage === 'laporan-aktivitas') {
-    pageBody = renderLaporanAktivitasView();
+    STATE.reportActiveTab = 'aktivitas';
+    pageBody = renderReportView();
   }
 
   root.innerHTML =
@@ -419,17 +433,19 @@ function loadActivePageData(forceRefresh, fetchOpts) {
     fetchCustomerData(forceRefresh, opts);
   } else if (p === 'mobil') {
     fetchMobilData(forceRefresh, opts);
-  } else if (p === 'report') {
+  } else if (p === 'bbm-master') {
+    fetchMasterBbmData(forceRefresh, opts);
+  } else if (p === 'report' || p === 'laporan-aktivitas') {
     ensureDropdownsLoaded(forceRefresh, opts).then(function () {
-      fetchReportData(forceRefresh, opts);
+      if (STATE.reportActiveTab === 'orders') {
+        fetchReportData(forceRefresh, opts);
+      } else {
+        fetchLaporanAktivitasData(forceRefresh, opts);
+      }
     });
   } else if (p === 'aktivitas-driver') {
     ensureDropdownsLoaded(forceRefresh, opts).then(function () {
       fetchAktivitasDriverData(forceRefresh, opts);
-    });
-  } else if (p === 'laporan-aktivitas') {
-    ensureDropdownsLoaded(forceRefresh, opts).then(function () {
-      fetchLaporanAktivitasData(forceRefresh, opts);
     });
   }
 }
@@ -440,9 +456,12 @@ function ensureDropdownsLoaded(forceRefresh, fetchOpts) {
     cacheKey: 'dropdowns',
     forceRefresh: Boolean(forceRefresh)
   }).then(function (data) {
-    var normalized = data || { drivers: [], customers: [], mobils: [] };
+    var normalized = data || { drivers: [], customers: [], mobils: [], bbms: [] };
     if (!normalized.mobils) {
       normalized.mobils = [];
+    }
+    if (!normalized.bbms) {
+      normalized.bbms = [];
     }
     var snap = JSON.stringify(normalized);
     var changed = STATE.lastSnapshots.dropdowns !== snap;
@@ -453,9 +472,12 @@ function ensureDropdownsLoaded(forceRefresh, fetchOpts) {
         cacheKey: 'dropdowns',
         forceRefresh: true
       }).then(function (fresh) {
-        var normFresh = fresh || { drivers: [], customers: [], mobils: [] };
+        var normFresh = fresh || { drivers: [], customers: [], mobils: [], bbms: [] };
         if (!normFresh.mobils) {
           normFresh.mobils = [];
+        }
+        if (!normFresh.bbms) {
+          normFresh.bbms = [];
         }
         var freshSnap = JSON.stringify(normFresh);
         if (STATE.lastSnapshots.dropdowns !== freshSnap) {
@@ -863,7 +885,7 @@ function renderOrdersFilterBar(isMonitor) {
         '</div>' +
         '<div class="form-group" style="display:flex;flex-direction:row;gap:6px">' +
           '<button type="button" class="btn btn-navy" style="flex:1" onclick="applyOrdersFilter()">Terapkan</button>' +
-          '<button type="button" class="btn btn-secondary" onclick="resetOrdersFilter()">Reset</button>' +
+          '<button type="button" class="btn-reset-filter" onclick="resetOrdersFilter()" title="Reset Filter">' + ICONS.rotateCcw + '<span>Reset</span></button>' +
         '</div>' +
       '</div>' +
     '</div>'
@@ -2163,6 +2185,12 @@ function applyKaryawanFilter() {
   fetchKaryawanData(false);
 }
 
+function resetKaryawanFilter() {
+  STATE.karyawan.filters = { search: '', divisi: '', status: '' };
+  STATE.karyawan.page = 1;
+  fetchKaryawanData(false);
+}
+
 function changeKaryawanPage(p) {
   STATE.karyawan.page = p;
   fetchKaryawanData(false);
@@ -2209,7 +2237,10 @@ function renderKaryawanView() {
         '<div class="form-group"><label class="form-label">Cari Karyawan</label><input id="kry-search" class="form-control" type="text" value="' + escapeHtml(f.search) + '" placeholder="Nama, ID, username..." onkeydown="if(event.key===\'Enter\'){event.preventDefault();applyKaryawanFilter();}" /></div>' +
         '<div class="form-group"><label class="form-label">Divisi</label><select id="kry-divisi" class="form-control"><option value="">Semua Divisi</option><option value="Back Office" ' + (f.divisi === 'Back Office' ? 'selected' : '') + '>Back Office</option><option value="Driver" ' + (f.divisi === 'Driver' ? 'selected' : '') + '>Driver</option></select></div>' +
         '<div class="form-group"><label class="form-label">Status</label><select id="kry-status" class="form-control"><option value="">Semua</option><option value="Aktif" ' + (f.status === 'Aktif' ? 'selected' : '') + '>Aktif</option><option value="Nonaktif" ' + (f.status === 'Nonaktif' ? 'selected' : '') + '>Nonaktif</option></select></div>' +
-        '<div class="form-group"><button type="button" class="btn btn-navy" onclick="applyKaryawanFilter()">Filter</button></div>' +
+        '<div class="form-group" style="display:flex;gap:6px">' +
+          '<button type="button" class="btn btn-navy" onclick="applyKaryawanFilter()">Filter</button>' +
+          '<button type="button" class="btn-reset-filter" onclick="resetKaryawanFilter()" title="Reset Filter">' + ICONS.rotateCcw + '<span>Reset</span></button>' +
+        '</div>' +
       '</div>' +
     '</div>' +
     '<div class="table-card">' +
@@ -2330,6 +2361,12 @@ function applyCustomerFilter() {
   fetchCustomerData(false);
 }
 
+function resetCustomerFilter() {
+  STATE.customer.filters = { search: '', status: '' };
+  STATE.customer.page = 1;
+  fetchCustomerData(false);
+}
+
 function changeCustomerPage(p) {
   STATE.customer.page = p;
   fetchCustomerData(false);
@@ -2373,7 +2410,10 @@ function renderCustomerView() {
       '<div class="filter-bar" style="margin-bottom:0">' +
         '<div class="form-group"><label class="form-label">Cari Customer</label><input id="cst-search" class="form-control" type="text" value="' + escapeHtml(f.search) + '" placeholder="Nama customer, alamat, PIC..." onkeydown="if(event.key===\'Enter\'){event.preventDefault();applyCustomerFilter();}" /></div>' +
         '<div class="form-group"><label class="form-label">Status</label><select id="cst-status" class="form-control"><option value="">Semua</option><option value="Aktif" ' + (f.status === 'Aktif' ? 'selected' : '') + '>Aktif</option><option value="Nonaktif" ' + (f.status === 'Nonaktif' ? 'selected' : '') + '>Nonaktif</option></select></div>' +
-        '<div class="form-group"><button type="button" class="btn btn-navy" onclick="applyCustomerFilter()">Filter</button></div>' +
+        '<div class="form-group" style="display:flex;gap:6px">' +
+          '<button type="button" class="btn btn-navy" onclick="applyCustomerFilter()">Filter</button>' +
+          '<button type="button" class="btn-reset-filter" onclick="resetCustomerFilter()" title="Reset Filter">' + ICONS.rotateCcw + '<span>Reset</span></button>' +
+        '</div>' +
       '</div>' +
     '</div>' +
     '<div class="table-card">' +
@@ -2488,6 +2528,12 @@ function applyMobilFilter() {
   fetchMobilData(false);
 }
 
+function resetMobilFilter() {
+  STATE.mobil.filters = { search: '', status: '' };
+  STATE.mobil.page = 1;
+  fetchMobilData(false);
+}
+
 function changeMobilPage(p) {
   STATE.mobil.page = p;
   fetchMobilData(false);
@@ -2499,7 +2545,7 @@ function renderMobilView() {
   var rowsHtml = '';
 
   if (!items.length) {
-    rowsHtml = '<tr><td colspan="5" class="empty-state">Tidak ada data mobil.</td></tr>';
+    rowsHtml = '<tr><td colspan="6" class="empty-state">Tidak ada data mobil.</td></tr>';
   } else {
     for (var i = 0; i < items.length; i++) {
       var m = items[i];
@@ -2509,6 +2555,7 @@ function renderMobilView() {
           '<td><div class="cell-strong">' + escapeHtml(m.idMobil) + '</div></td>' +
           '<td><div class="cell-strong">' + escapeHtml(m.platMobil) + '</div></td>' +
           '<td>' + escapeHtml(m.jenisMobil || '-') + '</td>' +
+          '<td><span class="badge" style="background:#fef3c7;color:#92400e;border:1px solid #fde68a">' + escapeHtml(m.jenisBbm || 'Solar / Biosolar') + '</span></td>' +
           '<td>' + badgeStatus + '</td>' +
           '<td><button type="button" class="btn btn-secondary btn-sm" onclick="openMobilModal(\'' + escapeHtml(m.idMobil) + '\')">' + ICONS.edit + '<span>Edit</span></button></td>' +
         '</tr>';
@@ -2519,7 +2566,7 @@ function renderMobilView() {
     '<div class="page-header">' +
       '<div>' +
         '<h2 class="page-title">Master Mobil</h2>' +
-        '<p class="page-subtitle">Kelola data plat nomor kendaraan dan jenis mobil untuk pengiriman Delivery Order</p>' +
+        '<p class="page-subtitle">Kelola data plat nomor kendaraan, jenis mobil, dan jenis BBM untuk pengiriman Delivery Order</p>' +
       '</div>' +
       '<div class="header-actions">' +
         renderSyncStatusBadge() +
@@ -2530,11 +2577,14 @@ function renderMobilView() {
       '<div class="filter-bar" style="margin-bottom:0">' +
         '<div class="form-group"><label class="form-label">Cari Plat / Jenis Mobil</label><input id="mbl-search" class="form-control" type="text" value="' + escapeHtml(f.search) + '" placeholder="Plat mobil, jenis mobil, ID..." onkeydown="if(event.key===\'Enter\'){event.preventDefault();applyMobilFilter();}" /></div>' +
         '<div class="form-group"><label class="form-label">Status</label><select id="mbl-status" class="form-control"><option value="">Semua</option><option value="Aktif" ' + (f.status === 'Aktif' ? 'selected' : '') + '>Aktif</option><option value="Nonaktif" ' + (f.status === 'Nonaktif' ? 'selected' : '') + '>Nonaktif</option></select></div>' +
-        '<div class="form-group"><button type="button" class="btn btn-navy" onclick="applyMobilFilter()">Filter</button></div>' +
+        '<div class="form-group" style="display:flex;gap:6px">' +
+          '<button type="button" class="btn btn-navy" onclick="applyMobilFilter()">Filter</button>' +
+          '<button type="button" class="btn-reset-filter" onclick="resetMobilFilter()" title="Reset Filter">' + ICONS.rotateCcw + '<span>Reset</span></button>' +
+        '</div>' +
       '</div>' +
     '</div>' +
     '<div class="table-card">' +
-      '<div class="table-wrap"><table class="data-table"><thead><tr><th>ID Mobil</th><th>Plat Mobil</th><th>Jenis Mobil</th><th>Status</th><th>Aksi</th></tr></thead><tbody>' + rowsHtml + '</tbody></table></div>' +
+      '<div class="table-wrap"><table class="data-table"><thead><tr><th>ID Mobil</th><th>Plat Mobil</th><th>Jenis Mobil</th><th>Jenis BBM</th><th>Status</th><th>Aksi</th></tr></thead><tbody>' + rowsHtml + '</tbody></table></div>' +
       renderPaginationBar(STATE.mobil.page, STATE.mobil.totalPages, STATE.mobil.total, 'changeMobilPage') +
     '</div>'
   );
@@ -2551,6 +2601,14 @@ function openMobilModal(idMobil) {
     }
   }
   var isEdit = Boolean(item);
+
+  var bbmOpts =
+    '<option value="Solar / Biosolar" ' + (!item || item.jenisBbm === 'Solar / Biosolar' ? 'selected' : '') + '>Solar / Biosolar</option>' +
+    '<option value="Dexlite" ' + (item && item.jenisBbm === 'Dexlite' ? 'selected' : '') + '>Dexlite</option>' +
+    '<option value="Pertamina Dex" ' + (item && item.jenisBbm === 'Pertamina Dex' ? 'selected' : '') + '>Pertamina Dex</option>' +
+    '<option value="Pertalite" ' + (item && item.jenisBbm === 'Pertalite' ? 'selected' : '') + '>Pertalite</option>' +
+    '<option value="Pertamax" ' + (item && item.jenisBbm === 'Pertamax' ? 'selected' : '') + '>Pertamax</option>' +
+    '<option value="Pertamax Turbo" ' + (item && item.jenisBbm === 'Pertamax Turbo' ? 'selected' : '') + '>Pertamax Turbo</option>';
 
   var html =
     '<div class="modal-header"><h3 class="modal-title">' + (isEdit ? 'Ubah Data Mobil' : 'Tambah Mobil Baru') + '</h3><button type="button" class="modal-close" onclick="closeModal()">' + ICONS.x + '</button></div>' +
@@ -2575,6 +2633,11 @@ function openMobilModal(idMobil) {
           '</datalist>' +
         '</div>' +
         '<div class="form-group">' +
+          '<label class="form-label" for="mbl-jenis-bbm">Jenis BBM <span class="req">*</span></label>' +
+          '<select id="mbl-jenis-bbm" class="form-control">' + bbmOpts + '</select>' +
+          '<span class="form-hint">Jenis BBM default yang akan otomatis terpilih saat driver mengisi BBM di SPBU.</span>' +
+        '</div>' +
+        '<div class="form-group">' +
           '<label class="form-label" for="mbl-status">Status</label>' +
           '<select id="mbl-status" class="form-control"><option value="Aktif" ' + (!item || item.status === 'Aktif' ? 'selected' : '') + '>Aktif</option><option value="Nonaktif" ' + (item && item.status === 'Nonaktif' ? 'selected' : '') + '>Nonaktif</option></select>' +
         '</div>' +
@@ -2597,6 +2660,7 @@ function openMobilModal(idMobil) {
       idMobil: item ? item.idMobil : '',
       platMobil: document.getElementById('mbl-plat').value.trim().toUpperCase(),
       jenisMobil: document.getElementById('mbl-jenis').value.trim(),
+      jenisBbm: document.getElementById('mbl-jenis-bbm').value,
       status: document.getElementById('mbl-status').value
     }).then(function () {
       clearApiCache('mobil_');
@@ -2608,6 +2672,203 @@ function openMobilModal(idMobil) {
       showToast(err.message, 'error');
       btn.disabled = false;
       btn.textContent = 'Simpan Mobil';
+    });
+  });
+}
+
+// ============================================================================
+// MASTER BBM (JENIS BBM & HARGA PER LITER)
+// ============================================================================
+
+function fetchMasterBbmData(forceRefresh, fetchOpts) {
+  var silent = Boolean(fetchOpts && fetchOpts.silent);
+  var f = STATE.bbmMaster.filters;
+  var payload = {
+    page: STATE.bbmMaster.page,
+    limit: STATE.bbmMaster.limit,
+    search: f.search,
+    status: f.status
+  };
+  var cacheKey = 'bbm_master_' + JSON.stringify(payload);
+  var servedFromCache = !forceRefresh && hasCacheEntry(cacheKey);
+  if (!servedFromCache) {
+    setSyncVisualState(true, false);
+  }
+
+  callGasApi('listBbmMaster', payload, {
+    cacheKey: cacheKey,
+    forceRefresh: Boolean(forceRefresh)
+  }).then(function (data) {
+    var snap = JSON.stringify({ query: payload, data: data });
+    var changed = STATE.lastSnapshots.bbmMaster !== snap;
+
+    STATE.bbmMaster.items = data.items || [];
+    STATE.bbmMaster.total = data.total || 0;
+    STATE.bbmMaster.page = data.page || 1;
+    STATE.bbmMaster.totalPages = data.totalPages || 1;
+    STATE.lastSnapshots.bbmMaster = snap;
+
+    setSyncVisualState(false, !servedFromCache || Boolean(forceRefresh));
+
+    if (STATE.currentPage === 'bbm-master' && (changed || (!silent && !servedFromCache))) {
+      renderApp();
+    }
+    if (servedFromCache && !silent) {
+      fetchMasterBbmData(true, { silent: true });
+    }
+  }).catch(function (err) {
+    setSyncVisualState(false, false);
+    if (!silent) {
+      showToast(err.message, 'error');
+    }
+  });
+}
+
+function applyMasterBbmFilter() {
+  STATE.bbmMaster.filters.search = document.getElementById('bbm-m-search').value.trim();
+  STATE.bbmMaster.filters.status = document.getElementById('bbm-m-status').value;
+  STATE.bbmMaster.page = 1;
+  fetchMasterBbmData(false);
+}
+
+function resetMasterBbmFilter() {
+  STATE.bbmMaster.filters = { search: '', status: '' };
+  STATE.bbmMaster.page = 1;
+  fetchMasterBbmData(false);
+}
+
+function changeMasterBbmPage(p) {
+  STATE.bbmMaster.page = p;
+  fetchMasterBbmData(false);
+}
+
+function renderMasterBbmView() {
+  var f = STATE.bbmMaster.filters;
+  var items = STATE.bbmMaster.items;
+  var rowsHtml = '';
+
+  if (!items.length) {
+    rowsHtml = '<tr><td colspan="5" class="empty-state">Tidak ada data master BBM.</td></tr>';
+  } else {
+    for (var i = 0; i < items.length; i++) {
+      var b = items[i];
+      var badgeStatus = b.status === 'Aktif' ? '<span class="badge badge-selesai">Aktif</span>' : '<span class="badge badge-gagal">Nonaktif</span>';
+      rowsHtml +=
+        '<tr>' +
+          '<td><div class="cell-strong">' + escapeHtml(b.idBbm) + '</div></td>' +
+          '<td><div class="cell-strong">' + escapeHtml(b.namaBbm) + '</div></td>' +
+          '<td><strong style="color:var(--navy);font-size:14px">Rp ' + formatNumberID(b.hargaPerLiter) + '</strong> <span class="cell-sub">/ liter</span></td>' +
+          '<td>' + badgeStatus + '</td>' +
+          '<td><button type="button" class="btn btn-secondary btn-sm" onclick="openMasterBbmModal(\'' + escapeHtml(b.idBbm) + '\')">' + ICONS.edit + '<span>Edit</span></button></td>' +
+        '</tr>';
+    }
+  }
+
+  return (
+    '<div class="page-header">' +
+      '<div>' +
+        '<h2 class="page-title">Master BBM</h2>' +
+        '<p class="page-subtitle">Kelola daftar jenis bahan bakar (BBM) dan tarif harga resmi per liter untuk kalkulasi otomatis pengisian armada</p>' +
+      '</div>' +
+      '<div class="header-actions">' +
+        renderSyncStatusBadge() +
+        '<button type="button" class="btn btn-primary" onclick="openMasterBbmModal(\'\')">' + ICONS.plus + '<span>Tambah BBM</span></button>' +
+      '</div>' +
+    '</div>' +
+    '<div class="card" style="margin-bottom:14px">' +
+      '<div class="filter-bar" style="margin-bottom:0">' +
+        '<div class="form-group"><label class="form-label">Cari Jenis BBM</label><input id="bbm-m-search" class="form-control" type="text" value="' + escapeHtml(f.search) + '" placeholder="Nama BBM, ID..." onkeydown="if(event.key===\'Enter\'){event.preventDefault();applyMasterBbmFilter();}" /></div>' +
+        '<div class="form-group"><label class="form-label">Status</label><select id="bbm-m-status" class="form-control"><option value="">Semua</option><option value="Aktif" ' + (f.status === 'Aktif' ? 'selected' : '') + '>Aktif</option><option value="Nonaktif" ' + (f.status === 'Nonaktif' ? 'selected' : '') + '>Nonaktif</option></select></div>' +
+        '<div class="form-group" style="display:flex;gap:6px">' +
+          '<button type="button" class="btn btn-navy" onclick="applyMasterBbmFilter()">Filter</button>' +
+          '<button type="button" class="btn-reset-filter" onclick="resetMasterBbmFilter()" title="Reset Filter">' + ICONS.rotateCcw + '<span>Reset</span></button>' +
+        '</div>' +
+      '</div>' +
+    '</div>' +
+    '<div class="table-card">' +
+      '<div class="table-wrap"><table class="data-table"><thead><tr><th>ID BBM</th><th>Nama Jenis BBM</th><th>Harga Per Liter (Rp)</th><th>Status</th><th>Aksi</th></tr></thead><tbody>' + rowsHtml + '</tbody></table></div>' +
+      renderPaginationBar(STATE.bbmMaster.page, STATE.bbmMaster.totalPages, STATE.bbmMaster.total, 'changeMasterBbmPage') +
+    '</div>'
+  );
+}
+
+function openMasterBbmModal(idBbm) {
+  var item = null;
+  if (idBbm) {
+    for (var i = 0; i < STATE.bbmMaster.items.length; i++) {
+      if (STATE.bbmMaster.items[i].idBbm === idBbm) {
+        item = STATE.bbmMaster.items[i];
+        break;
+      }
+    }
+  }
+  var isEdit = Boolean(item);
+
+  var html =
+    '<div class="modal-header"><h3 class="modal-title">' + (isEdit ? 'Ubah Data Master BBM' : 'Tambah Jenis BBM Baru') + '</h3><button type="button" class="modal-close" onclick="closeModal()">' + ICONS.x + '</button></div>' +
+    '<form id="bbm-master-form">' +
+      '<div class="modal-body">' +
+        '<div class="form-group">' +
+          '<label class="form-label" for="bbm-m-nama">Nama Jenis BBM <span class="req">*</span></label>' +
+          '<input id="bbm-m-nama" class="form-control" type="text" value="' + escapeHtml(item ? item.namaBbm : '') + '" placeholder="Contoh: Pertalite, Solar / Biosolar, Dexlite..." required />' +
+        '</div>' +
+        '<div class="form-group">' +
+          '<label class="form-label" for="bbm-m-harga">Harga Per Liter (Rp) <span class="req">*</span></label>' +
+          '<input id="bbm-m-harga" class="form-control" type="number" min="1" step="1" value="' + (item ? item.hargaPerLiter : '') + '" placeholder="Contoh: 10000" required />' +
+          '<span class="form-hint">Digunakan untuk konversi otomatis antara Total Biaya (Rp) dan Jumlah Liter di form pengisian driver.</span>' +
+        '</div>' +
+        '<div class="form-group">' +
+          '<label class="form-label" for="bbm-m-status-input">Status</label>' +
+          '<select id="bbm-m-status-input" class="form-control"><option value="Aktif" ' + (!item || item.status === 'Aktif' ? 'selected' : '') + '>Aktif</option><option value="Nonaktif" ' + (item && item.status === 'Nonaktif' ? 'selected' : '') + '>Nonaktif</option></select>' +
+        '</div>' +
+      '</div>' +
+      '<div class="modal-footer">' +
+        '<button type="button" class="btn btn-secondary" onclick="closeModal()">Batal</button>' +
+        '<button id="bbm-m-save-btn" type="submit" class="btn btn-primary">Simpan Master BBM</button>' +
+      '</div>' +
+    '</form>';
+
+  openModal(html);
+
+  document.getElementById('bbm-master-form').addEventListener('submit', function (ev) {
+    ev.preventDefault();
+    var btn = document.getElementById('bbm-m-save-btn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span><span>Menyimpan...</span>';
+
+    var namaVal = document.getElementById('bbm-m-nama').value.trim();
+    var hargaVal = Number(document.getElementById('bbm-m-harga').value);
+    var statusVal = document.getElementById('bbm-m-status-input').value;
+
+    if (!namaVal) {
+      showToast('Nama BBM wajib diisi.', 'warning');
+      btn.disabled = false;
+      btn.textContent = 'Simpan Master BBM';
+      return;
+    }
+    if (isNaN(hargaVal) || hargaVal <= 0) {
+      showToast('Harga per liter harus berupa angka positif.', 'warning');
+      btn.disabled = false;
+      btn.textContent = 'Simpan Master BBM';
+      return;
+    }
+
+    callGasApi('saveBbmMaster', {
+      idBbm: item ? item.idBbm : '',
+      namaBbm: namaVal,
+      hargaPerLiter: hargaVal,
+      status: statusVal
+    }).then(function () {
+      clearApiCache('bbm_master_');
+      clearApiCache('dropdowns');
+      closeModal();
+      fetchMasterBbmData(true);
+      ensureDropdownsLoaded(true);
+      showToast('Data master BBM berhasil disimpan.', 'success');
+    }).catch(function (err) {
+      showToast(err.message, 'error');
+      btn.disabled = false;
+      btn.textContent = 'Simpan Master BBM';
     });
   });
 }
@@ -2704,7 +2965,58 @@ function triggerExportReport(formatType) {
   });
 }
 
+function switchReportTab(tabName) {
+  STATE.reportActiveTab = tabName;
+  STATE.currentPage = 'report';
+  var dropdown = document.getElementById('overflow-dropdown');
+  if (dropdown) dropdown.classList.remove('open');
+  renderApp();
+  if (tabName === 'orders') {
+    fetchReportData(false);
+  } else {
+    fetchLaporanAktivitasData(false);
+  }
+}
+
+function resetReportFilter() {
+  STATE.report.filters = { dateFrom: '', dateTo: '', driverId: '', customerId: '', status: '', search: '' };
+  STATE.report.page = 1;
+  fetchReportData(false);
+}
+
+function resetLaporanAktivitasFilter() {
+  var isDriver = STATE.session && STATE.session.user && STATE.session.user.divisi === 'Driver';
+  STATE.laporanAktivitas.filters = {
+    dateFrom: '',
+    dateTo: '',
+    driverId: isDriver ? STATE.session.user.idKaryawan : '',
+    platMobil: '',
+    status: '',
+    search: ''
+  };
+  STATE.laporanAktivitas.page = 1;
+  fetchLaporanAktivitasData(false);
+}
+
 function renderReportView() {
+  var isAktivitas = STATE.reportActiveTab === 'aktivitas';
+  var navTabsHtml =
+    '<div class="segmented-nav">' +
+      '<button type="button" class="segmented-tab-btn ' + (!isAktivitas ? 'active' : '') + '" onclick="switchReportTab(\'orders\')">' +
+        ICONS.fileText + '<span>Laporan Delivery Order</span>' +
+      '</button>' +
+      '<button type="button" class="segmented-tab-btn ' + (isAktivitas ? 'active' : '') + '" onclick="switchReportTab(\'aktivitas\')">' +
+        ICONS.truck + '<span>Laporan Aktivitas Driver & Kendaraan</span>' +
+      '</button>' +
+    '</div>';
+
+  if (isAktivitas) {
+    return navTabsHtml + renderLaporanAktivitasContent_();
+  }
+  return navTabsHtml + renderReportDeliveryOrderContent_();
+}
+
+function renderReportDeliveryOrderContent_() {
   var f = STATE.report.filters;
   var s = STATE.report.summary;
   var drivers = STATE.dropdowns.drivers || [];
@@ -2775,7 +3087,10 @@ function renderReportView() {
         '<div class="form-group"><label class="form-label">Customer</label><select id="rep-customer" class="form-control">' + cstOpts + '</select></div>' +
         '<div class="form-group"><label class="form-label">Status</label><select id="rep-status" class="form-control">' + stOpts + '</select></div>' +
         '<div class="form-group"><label class="form-label">Cari Teks</label><input id="rep-search" class="form-control" type="text" value="' + escapeHtml(f.search) + '" placeholder="No DO / Plat / Penerima..." onkeydown="if(event.key===\'Enter\'){event.preventDefault();applyReportFilter();}" /></div>' +
-        '<div class="form-group"><button type="button" class="btn btn-navy" style="width:100%" onclick="applyReportFilter()">Tampilkan</button></div>' +
+        '<div class="form-group" style="display:flex;gap:6px">' +
+          '<button type="button" class="btn btn-navy" style="flex:1" onclick="applyReportFilter()">Tampilkan</button>' +
+          '<button type="button" class="btn-reset-filter" onclick="resetReportFilter()" title="Reset Filter">' + ICONS.rotateCcw + '<span>Reset</span></button>' +
+        '</div>' +
       '</div>' +
     '</div>' +
     '<div class="table-card">' +
@@ -3076,6 +3391,79 @@ function submitCheckOutAktivitas() {
 // MODAL ISI BBM DI JALAN
 // ----------------------------------------------------------------------------
 
+function isBbmMatch(a, b) {
+  if (!a || !b) return false;
+  var s1 = String(a).toLowerCase().trim();
+  var s2 = String(b).toLowerCase().trim();
+  return s1 === s2 || s1.indexOf(s2) !== -1 || s2.indexOf(s1) !== -1;
+}
+
+function getSelectedBbmPrice(jenisNama) {
+  var bbmList = (STATE.dropdowns && STATE.dropdowns.bbms && STATE.dropdowns.bbms.length)
+    ? STATE.dropdowns.bbms
+    : [
+        { namaBbm: 'Solar / Biosolar', hargaPerLiter: 6800 },
+        { namaBbm: 'Dexlite', hargaPerLiter: 13700 },
+        { namaBbm: 'Pertamina Dex', hargaPerLiter: 14200 },
+        { namaBbm: 'Pertalite', hargaPerLiter: 10000 },
+        { namaBbm: 'Pertamax', hargaPerLiter: 12100 },
+        { namaBbm: 'Pertamax Turbo', hargaPerLiter: 13250 }
+      ];
+  for (var i = 0; i < bbmList.length; i++) {
+    if (bbmList[i].namaBbm === jenisNama || isBbmMatch(bbmList[i].namaBbm, jenisNama)) {
+      return Number(bbmList[i].hargaPerLiter) || 0;
+    }
+  }
+  return 0;
+}
+
+function onBbmBiayaInput() {
+  var jenisEl = document.getElementById('akt-bbm-jenis');
+  var biayaEl = document.getElementById('akt-bbm-biaya');
+  var literEl = document.getElementById('akt-bbm-liter');
+  if (!jenisEl || !biayaEl || !literEl) return;
+  var harga = getSelectedBbmPrice(jenisEl.value);
+  var biaya = parseFloat(biayaEl.value);
+  if (harga > 0 && !isNaN(biaya) && biaya > 0) {
+    var liter = Math.round((biaya / harga) * 100) / 100;
+    literEl.value = liter;
+  } else if (!biayaEl.value) {
+    literEl.value = '';
+  }
+}
+
+function onBbmLiterInput() {
+  var jenisEl = document.getElementById('akt-bbm-jenis');
+  var biayaEl = document.getElementById('akt-bbm-biaya');
+  var literEl = document.getElementById('akt-bbm-liter');
+  if (!jenisEl || !biayaEl || !literEl) return;
+  var harga = getSelectedBbmPrice(jenisEl.value);
+  var liter = parseFloat(literEl.value);
+  if (harga > 0 && !isNaN(liter) && liter > 0) {
+    var biaya = Math.round(liter * harga);
+    biayaEl.value = biaya;
+  } else if (!literEl.value) {
+    biayaEl.value = '';
+  }
+}
+
+function onBbmJenisChange() {
+  var jenisEl = document.getElementById('akt-bbm-jenis');
+  var badgeEl = document.getElementById('akt-bbm-price-badge');
+  if (!jenisEl) return;
+  var harga = getSelectedBbmPrice(jenisEl.value);
+  if (badgeEl) {
+    badgeEl.textContent = harga > 0 ? 'Harga Master: Rp ' + formatNumberID(harga) + ' / Liter' : 'Harga belum disetel';
+  }
+  var biayaEl = document.getElementById('akt-bbm-biaya');
+  var literEl = document.getElementById('akt-bbm-liter');
+  if (biayaEl && biayaEl.value && Number(biayaEl.value) > 0) {
+    onBbmBiayaInput();
+  } else if (literEl && literEl.value && Number(literEl.value) > 0) {
+    onBbmLiterInput();
+  }
+}
+
 function openBbmModal() {
   var act = STATE.aktivitas.active;
   if (!act) {
@@ -3088,14 +3476,53 @@ function openBbmModal() {
   STATE.modalGpsLoading = true;
   STATE.modalGpsError = '';
 
-  var jenisOpts =
-    '<option value="Solar">Solar / Biosolar</option>' +
-    '<option value="Dexlite">Dexlite</option>' +
-    '<option value="Pertamina Dex">Pertamina Dex</option>' +
-    '<option value="Pertalite">Pertalite</option>' +
-    '<option value="Pertamax" selected>Pertamax</option>' +
-    '<option value="Pertamax Turbo">Pertamax Turbo</option>' +
-    '<option value="Lainnya">Lainnya</option>';
+  // Auto-detect fuel type from Master Mobil
+  var carJenis = (act && act.jenisBbm) || '';
+  if (!carJenis && STATE.dropdowns && STATE.dropdowns.mobils) {
+    for (var m = 0; m < STATE.dropdowns.mobils.length; m++) {
+      if (STATE.dropdowns.mobils[m].platMobil === act.platMobil) {
+        carJenis = STATE.dropdowns.mobils[m].jenisBbm || '';
+        break;
+      }
+    }
+  }
+
+  var bbmList = (STATE.dropdowns && STATE.dropdowns.bbms && STATE.dropdowns.bbms.length)
+    ? STATE.dropdowns.bbms
+    : [
+        { namaBbm: 'Solar / Biosolar', hargaPerLiter: 6800 },
+        { namaBbm: 'Dexlite', hargaPerLiter: 13700 },
+        { namaBbm: 'Pertamina Dex', hargaPerLiter: 14200 },
+        { namaBbm: 'Pertalite', hargaPerLiter: 10000 },
+        { namaBbm: 'Pertamax', hargaPerLiter: 12100 },
+        { namaBbm: 'Pertamax Turbo', hargaPerLiter: 13250 }
+      ];
+
+  var matchedBbm = null;
+  if (carJenis) {
+    for (var bi = 0; bi < bbmList.length; bi++) {
+      if (bbmList[bi].namaBbm === carJenis || isBbmMatch(bbmList[bi].namaBbm, carJenis)) {
+        matchedBbm = bbmList[bi];
+        break;
+      }
+    }
+  }
+  if (!matchedBbm && bbmList.length) {
+    matchedBbm = bbmList[0];
+  }
+
+  var jenisOpts = '';
+  for (var k = 0; k < bbmList.length; k++) {
+    var bItem = bbmList[k];
+    var isSel = matchedBbm && matchedBbm.namaBbm === bItem.namaBbm;
+    jenisOpts += '<option value="' + escapeHtml(bItem.namaBbm) + '" ' + (isSel ? 'selected' : '') + '>' +
+      escapeHtml(bItem.namaBbm) + ' (Rp ' + formatNumberID(bItem.hargaPerLiter) + '/L)' +
+      '</option>';
+  }
+  jenisOpts += '<option value="Lainnya">Lainnya</option>';
+
+  var curPrice = matchedBbm ? Number(matchedBbm.hargaPerLiter) : 0;
+  var priceBadgeText = curPrice > 0 ? 'Harga Master: Rp ' + formatNumberID(curPrice) + ' / Liter' : 'Harga belum disetel';
 
   var body =
     '<div class="modal-header">' +
@@ -3104,7 +3531,12 @@ function openBbmModal() {
     '</div>' +
     '<div class="modal-body">' +
       '<div style="margin-bottom:14px;padding:10px 14px;background:var(--bg-subtle);border-radius:var(--radius-sm);font-size:12.5px">' +
-        'Armada: <strong>' + escapeHtml(act.platMobil) + '</strong> · KM Awal Berangkat: <strong>' + formatNumberID(act.kmAwal) + ' KM</strong>' +
+        'Armada: <strong>' + escapeHtml(act.platMobil) + '</strong>' + (carJenis ? ' · Jenis BBM Mobil: <strong>' + escapeHtml(carJenis) + '</strong>' : '') + ' · KM Awal: <strong>' + formatNumberID(act.kmAwal) + ' KM</strong>' +
+      '</div>' +
+      '<div class="form-group">' +
+        '<label class="form-label">Jenis BBM <span class="req">*</span></label>' +
+        '<select id="akt-bbm-jenis" class="form-control" onchange="onBbmJenisChange()">' + jenisOpts + '</select>' +
+        '<div id="akt-bbm-price-badge" class="calc-badge-price">' + priceBadgeText + '</div>' +
       '</div>' +
       '<div class="form-group">' +
         '<label class="form-label">Kilometer saat Isi BBM <span class="req">*</span></label>' +
@@ -3114,16 +3546,12 @@ function openBbmModal() {
       '<div class="form-grid">' +
         '<div class="form-group">' +
           '<label class="form-label">Biaya / Total Pembelian (Rp) <span class="req">*</span></label>' +
-          '<input id="akt-bbm-biaya" class="form-control" type="number" min="0" placeholder="Contoh: 150000" />' +
+          '<input id="akt-bbm-biaya" class="form-control" type="number" min="0" placeholder="Contoh: 200000" oninput="onBbmBiayaInput()" />' +
         '</div>' +
         '<div class="form-group">' +
           '<label class="form-label">Jumlah Liter</label>' +
-          '<input id="akt-bbm-liter" class="form-control" type="number" step="0.01" min="0" placeholder="Contoh: 15.2" />' +
+          '<input id="akt-bbm-liter" class="form-control" type="number" step="0.01" min="0" placeholder="Contoh: 20" oninput="onBbmLiterInput()" />' +
         '</div>' +
-      '</div>' +
-      '<div class="form-group">' +
-        '<label class="form-label">Jenis BBM</label>' +
-        '<select id="akt-bbm-jenis" class="form-control">' + jenisOpts + '</select>' +
       '</div>' +
       renderPhotoUploaderSection('Foto Struk SPBU / Dispenser / Meteran', false) +
       '<div class="form-group">' +
@@ -3425,7 +3853,7 @@ function triggerExportAktivitas(formatType) {
   });
 }
 
-function renderLaporanAktivitasView() {
+function renderLaporanAktivitasContent_() {
   var f = STATE.laporanAktivitas.filters;
   var s = STATE.laporanAktivitas.summary || {};
   var user = STATE.session.user;
@@ -3532,7 +3960,10 @@ function renderLaporanAktivitasView() {
         '<div class="form-group"><label class="form-label">Armada Mobil</label><select id="akt-rep-mobil" class="form-control">' + mblOpts + '</select></div>' +
         '<div class="form-group"><label class="form-label">Status</label><select id="akt-rep-status" class="form-control">' + stOpts + '</select></div>' +
         '<div class="form-group"><label class="form-label">Cari Teks</label><input id="akt-rep-search" class="form-control" type="text" value="' + escapeHtml(f.search) + '" placeholder="ID / Plat / Driver..." onkeydown="if(event.key===\'Enter\'){event.preventDefault();applyLaporanAktivitasFilter();}" /></div>' +
-        '<div class="form-group"><button type="button" class="btn btn-navy" style="width:100%" onclick="applyLaporanAktivitasFilter()">Tampilkan</button></div>' +
+        '<div class="form-group" style="display:flex;gap:6px">' +
+          '<button type="button" class="btn btn-navy" style="flex:1" onclick="applyLaporanAktivitasFilter()">Tampilkan</button>' +
+          '<button type="button" class="btn-reset-filter" onclick="resetLaporanAktivitasFilter()" title="Reset Filter">' + ICONS.rotateCcw + '<span>Reset</span></button>' +
+        '</div>' +
       '</div>' +
     '</div>' +
     '<div class="table-card">' +
@@ -3540,6 +3971,11 @@ function renderLaporanAktivitasView() {
       renderPaginationBar(STATE.laporanAktivitas.page, STATE.laporanAktivitas.totalPages, STATE.laporanAktivitas.total, 'changeLaporanAktivitasPage') +
     '</div>'
   );
+}
+
+function renderLaporanAktivitasView() {
+  STATE.reportActiveTab = 'aktivitas';
+  return renderReportView();
 }
 
 // ----------------------------------------------------------------------------
