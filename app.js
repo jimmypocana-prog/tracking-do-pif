@@ -1523,7 +1523,7 @@ function renderPhotoUploaderSection(labelText, isOptional) {
         '</div>';
     } else {
       slotsHtml +=
-        '<div class="photo-slot" onclick="triggerGalleryInput()">' +
+        '<div class="photo-slot" onclick="triggerCameraInput()">' +
           ICONS.camera +
           '<span>Slot Foto ' + (i + 1) + '</span>' +
         '</div>';
@@ -1537,11 +1537,9 @@ function renderPhotoUploaderSection(labelText, isOptional) {
         '<span id="photo-count-label" class="form-hint">' + STATE.modalPhotos.length + ' / 6 terisi</span>' +
       '</div>' +
       '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px">' +
-        '<button type="button" class="btn btn-secondary btn-sm" onclick="triggerCameraInput()">' + ICONS.camera + '<span>Buka Kamera HP</span></button>' +
-        '<button type="button" class="btn btn-secondary btn-sm" onclick="triggerGalleryInput()">Pilih dari Galeri</button>' +
+        '<button type="button" class="btn btn-primary btn-sm" onclick="triggerCameraInput()">' + ICONS.camera + '<span>Buka Kamera HP (Wajib Foto Langsung)</span></button>' +
       '</div>' +
       '<input id="modal-camera-input" type="file" accept="image/*" capture="environment" style="display:none" onchange="handleModalPhotoFiles(this.files)" />' +
-      '<input id="modal-gallery-input" type="file" accept="image/*" multiple style="display:none" onchange="handleModalPhotoFiles(this.files)" />' +
       '<div id="photo-slots-container" class="photo-slots-grid">' + slotsHtml + '</div>' +
     '</div>'
   );
@@ -1555,10 +1553,7 @@ function triggerCameraInput() {
 }
 
 function triggerGalleryInput() {
-  var el = document.getElementById('modal-gallery-input');
-  if (el) {
-    el.click();
-  }
+  triggerCameraInput();
 }
 
 function handleModalPhotoFiles(fileList) {
@@ -1612,7 +1607,7 @@ function refreshPhotoGridDom() {
         '</div>';
     } else {
       slotsHtml +=
-        '<div class="photo-slot" onclick="triggerGalleryInput()">' +
+        '<div class="photo-slot" onclick="triggerCameraInput()">' +
           ICONS.camera +
           '<span>Slot Foto ' + (i + 1) + '</span>' +
         '</div>';
@@ -1679,7 +1674,7 @@ function acquireModalGps() {
       STATE.modalGpsLoading = false;
       STATE.modalGpsError = err.message;
       updateGpsBoxDom();
-      showToast(err.message, 'error');
+      showToast(err.message, 'warning');
     });
 }
 
@@ -1687,10 +1682,27 @@ function updateGpsBoxDom() {
   var holder = document.getElementById('gps-box-holder');
   if (holder) {
     holder.innerHTML = renderGpsStatusBox();
+  } else {
+    var box = document.getElementById('gps-status-box');
+    if (box && box.parentNode) {
+      box.outerHTML = renderGpsStatusBox();
+    }
   }
   var submitBtn = document.getElementById('gps-required-submit-btn');
   if (submitBtn) {
     submitBtn.disabled = !STATE.modalGps || STATE.modalGpsLoading;
+  }
+  var btnCheckout = document.getElementById('btn-submit-checkout-akt');
+  if (btnCheckout) {
+    btnCheckout.disabled = !STATE.modalGps || STATE.modalGpsLoading;
+  }
+  var btnBbm = document.getElementById('btn-submit-bbm-akt');
+  if (btnBbm) {
+    btnBbm.disabled = !STATE.modalGps || STATE.modalGpsLoading;
+  }
+  var btnCheckin = document.getElementById('btn-submit-checkin-akt');
+  if (btnCheckin) {
+    btnCheckin.disabled = !STATE.modalGps || STATE.modalGpsLoading;
   }
 }
 
@@ -2971,7 +2983,7 @@ function openCheckOutAktivitasModal() {
 function openCheckOutAktivitasModalContent_() {
   STATE.modalPhotos = [];
   STATE.modalGps = null;
-  STATE.modalGpsLoading = false;
+  STATE.modalGpsLoading = true;
   STATE.modalGpsError = '';
 
   var mobils = (STATE.dropdowns && STATE.dropdowns.mobils) || [];
@@ -3000,7 +3012,7 @@ function openCheckOutAktivitasModalContent_() {
       renderPhotoUploaderSection('Foto Kilometer Awal (Speedometer)', false) +
       '<div class="form-group">' +
         '<label class="form-label">Koordinat GPS Keberangkatan <span class="req">*</span></label>' +
-        renderGpsStatusBox() +
+        '<div id="gps-box-holder">' + renderGpsStatusBox() + '</div>' +
       '</div>' +
       '<div class="form-group">' +
         '<label class="form-label">Catatan / Tujuan Keberangkatan (Opsional)</label>' +
@@ -3009,7 +3021,7 @@ function openCheckOutAktivitasModalContent_() {
     '</div>' +
     '<div class="modal-footer">' +
       '<button type="button" class="btn btn-secondary" onclick="closeModal()">Batal</button>' +
-      '<button id="btn-submit-checkout-akt" type="button" class="btn btn-primary" onclick="submitCheckOutAktivitas()">' + ICONS.truck + '<span>Berangkat Sekarang</span></button>' +
+      '<button id="btn-submit-checkout-akt" type="button" class="btn btn-primary" onclick="submitCheckOutAktivitas()" disabled>' + ICONS.truck + '<span>Berangkat Sekarang</span></button>' +
     '</div>';
 
   openModal(body, false);
@@ -3077,7 +3089,7 @@ function openBbmModal() {
 
   STATE.modalPhotos = [];
   STATE.modalGps = null;
-  STATE.modalGpsLoading = false;
+  STATE.modalGpsLoading = true;
   STATE.modalGpsError = '';
 
   var jenisOpts =
@@ -3120,7 +3132,7 @@ function openBbmModal() {
       renderPhotoUploaderSection('Foto Struk SPBU / Dispenser / Meteran', false) +
       '<div class="form-group">' +
         '<label class="form-label">Koordinat GPS Lokasi SPBU <span class="req">*</span></label>' +
-        renderGpsStatusBox() +
+        '<div id="gps-box-holder">' + renderGpsStatusBox() + '</div>' +
       '</div>' +
       '<div class="form-group">' +
         '<label class="form-label">Catatan Tambahan (Opsional)</label>' +
@@ -3129,7 +3141,7 @@ function openBbmModal() {
     '</div>' +
     '<div class="modal-footer">' +
       '<button type="button" class="btn btn-secondary" onclick="closeModal()">Batal</button>' +
-      '<button id="btn-submit-bbm-akt" type="button" class="btn btn-emerald" onclick="submitBbmAktivitas()">' + ICONS.check + '<span>Simpan Pengisian BBM</span></button>' +
+      '<button id="btn-submit-bbm-akt" type="button" class="btn btn-emerald" onclick="submitBbmAktivitas()" disabled>' + ICONS.check + '<span>Simpan Pengisian BBM</span></button>' +
     '</div>';
 
   openModal(body, false);
@@ -3208,7 +3220,7 @@ function openCheckInAktivitasModal() {
 
   STATE.modalPhotos = [];
   STATE.modalGps = null;
-  STATE.modalGpsLoading = false;
+  STATE.modalGpsLoading = true;
   STATE.modalGpsError = '';
 
   var body =
@@ -3233,7 +3245,7 @@ function openCheckInAktivitasModal() {
       renderPhotoUploaderSection('Foto Kilometer Akhir (Speedometer)', false) +
       '<div class="form-group">' +
         '<label class="form-label">Koordinat GPS Kantor <span class="req">*</span></label>' +
-        renderGpsStatusBox() +
+        '<div id="gps-box-holder">' + renderGpsStatusBox() + '</div>' +
       '</div>' +
       '<div class="form-group">' +
         '<label class="form-label">Catatan Kepulangan / Kondisi Armada (Opsional)</label>' +
@@ -3242,7 +3254,7 @@ function openCheckInAktivitasModal() {
     '</div>' +
     '<div class="modal-footer">' +
       '<button type="button" class="btn btn-secondary" onclick="closeModal()">Batal</button>' +
-      '<button id="btn-submit-checkin-akt" type="button" class="btn btn-primary" onclick="submitCheckInAktivitas()">' + ICONS.check + '<span>Selesai & Check-In Kantor</span></button>' +
+      '<button id="btn-submit-checkin-akt" type="button" class="btn btn-primary" onclick="submitCheckInAktivitas()" disabled>' + ICONS.check + '<span>Selesai & Check-In Kantor</span></button>' +
     '</div>';
 
   openModal(body, false);
