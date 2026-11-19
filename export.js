@@ -42,6 +42,7 @@ function exportReportToPdf(items, summary, filters) {
       'ID Tracking',
       'Tgl DO',
       'Nomor DO',
+      'VIA',
       'Ke',
       'Customer',
       'Driver',
@@ -59,18 +60,23 @@ function exportReportToPdf(items, summary, filters) {
       var mobilInfo = d.platMobil
         ? (d.platMobil + (d.jenisMobil ? '\n' + d.jenisMobil : ''))
         : '-';
+      var pickUpInfo = d.waktuPickUp
+        ? formatDateTimeID(d.waktuPickUp) +
+          (d.pickUpLat !== null && d.pickUpLat !== undefined && d.pickUpLat !== '' ? '\nGPS: ' + d.pickUpLat + ', ' + d.pickUpLng : '')
+        : '-';
+      var checkInLabel = (d.via === 'Kurir' || d.via === 'Online') ? 'Selesai: ' : 'Penerima: ';
       var checkInInfo = d.waktuCheckIn
-        ? formatDateTimeID(d.waktuCheckIn) + '\nPenerima: ' + (d.namaPenerima || '-') +
-          (d.checkInLat !== null ? '\nGPS: ' + d.checkInLat + ', ' + d.checkInLng : '')
+        ? formatDateTimeID(d.waktuCheckIn) + '\n' + checkInLabel + (d.namaPenerima || '-') +
+          (d.checkInLat !== null && d.checkInLat !== undefined && d.checkInLat !== '' ? '\nGPS: ' + d.checkInLat + ', ' + d.checkInLng : '')
         : '-';
       var checkOutInfo = d.waktuCheckOut
         ? formatDateTimeID(d.waktuCheckOut) +
-          (d.checkOutLat !== null ? '\nGPS: ' + d.checkOutLat + ', ' + d.checkOutLng : '')
+          (d.checkOutLat !== null && d.checkOutLat !== undefined && d.checkOutLat !== '' ? '\nGPS: ' + d.checkOutLat + ', ' + d.checkOutLng : '')
         : '-';
       var notes = '';
       if (d.status === 'Gagal Kirim') {
         notes = 'GAGAL: ' + (d.alasanGagalKirim || '-') +
-          (d.gagalKirimLat !== null ? '\nGPS: ' + d.gagalKirimLat + ', ' + d.gagalKirimLng : '');
+          (d.gagalKirimLat !== null && d.gagalKirimLat !== undefined && d.gagalKirimLat !== '' ? '\nGPS: ' + d.gagalKirimLat + ', ' + d.gagalKirimLng : '');
       } else {
         notes = d.keterangan || '-';
       }
@@ -80,12 +86,13 @@ function exportReportToPdf(items, summary, filters) {
         d.idTracking,
         formatDateID(d.tanggalDO),
         d.nomorDO,
+        d.via || 'Driver',
         '#' + (d.percobaanKe || 1),
         d.namaCustomer,
         d.namaDriver,
         mobilInfo,
         d.status,
-        d.waktuPickUp ? formatDateTimeID(d.waktuPickUp) : '-',
+        pickUpInfo,
         checkInInfo,
         checkOutInfo,
         notes
@@ -110,19 +117,20 @@ function exportReportToPdf(items, summary, filters) {
           fontStyle: 'bold'
         },
         columnStyles: {
-          0: { cellWidth: 7 },
-          1: { cellWidth: 23 },
-          2: { cellWidth: 17 },
-          3: { cellWidth: 22 },
-          4: { cellWidth: 7 },
-          5: { cellWidth: 26 },
-          6: { cellWidth: 20 },
-          7: { cellWidth: 22 },
-          8: { cellWidth: 20 },
-          9: { cellWidth: 20 },
-          10: { cellWidth: 32 },
-          11: { cellWidth: 25 },
-          12: { cellWidth: 36 }
+          0: { cellWidth: 6 },
+          1: { cellWidth: 21 },
+          2: { cellWidth: 16 },
+          3: { cellWidth: 21 },
+          4: { cellWidth: 13 },
+          5: { cellWidth: 7 },
+          6: { cellWidth: 24 },
+          7: { cellWidth: 20 },
+          8: { cellWidth: 18 },
+          9: { cellWidth: 18 },
+          10: { cellWidth: 22 },
+          11: { cellWidth: 30 },
+          12: { cellWidth: 23 },
+          13: { cellWidth: 38 }
         },
         margin: { left: 10, right: 10 }
       });
@@ -158,6 +166,7 @@ function exportReportToPdf(items, summary, filters) {
       '<td>' + escapeHtml(row.idTracking) + '</td>' +
       '<td>' + escapeHtml(formatDateID(row.tanggalDO)) + '</td>' +
       '<td>' + escapeHtml(row.nomorDO) + ' (#' + (row.percobaanKe || 1) + ')</td>' +
+      '<td>' + escapeHtml(row.via || 'Driver') + '</td>' +
       '<td>' + escapeHtml(row.namaCustomer) + '</td>' +
       '<td>' + escapeHtml(row.namaDriver) + '</td>' +
       '<td>' + rowMobil + '</td>' +
@@ -170,7 +179,7 @@ function exportReportToPdf(items, summary, filters) {
     '<style>body{font-family:sans-serif;font-size:11px;padding:16px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #cbd5e1;padding:6px;text-align:left}th{background:#0f172a;color:#fff}</style>' +
     '</head><body><h2>Laporan Tracking Delivery Order - PIF</h2>' +
     '<p>Periode: ' + escapeHtml(periodText) + ' | Dicetak: ' + escapeHtml(printedAt) + '</p>' +
-    '<table><thead><tr><th>No</th><th>ID Tracking</th><th>Tgl DO</th><th>Nomor DO</th><th>Customer</th><th>Driver</th><th>Mobil</th><th>Status</th><th>Penerima</th><th>Keterangan / Alasan Gagal</th></tr></thead>' +
+    '<table><thead><tr><th>No</th><th>ID Tracking</th><th>Tgl DO</th><th>Nomor DO</th><th>VIA</th><th>Customer</th><th>Driver / Petugas</th><th>Mobil</th><th>Status</th><th>Penerima</th><th>Keterangan / Alasan Gagal</th></tr></thead>' +
     '<tbody>' + rowsHtml + '</tbody></table></body></html>';
   win.document.write(htmlDoc);
   win.document.close();
@@ -192,31 +201,34 @@ function exportReportToExcel(items, summary, filters) {
       'ID Tracking': d.idTracking,
       'Tanggal DO': d.tanggalDO,
       'Nomor DO': d.nomorDO,
+      'Pengiriman VIA': d.via || 'Driver',
       'Percobaan Ke': d.percobaanKe || 1,
       'Ref Tracking Sebelumnya': d.refTrackingSebelumnya || '-',
       'Nama Customer': d.namaCustomer,
       'Alamat Customer': d.customerAlamat || '-',
-      'Nama Driver': d.namaDriver,
+      'Nama Driver / Petugas': d.namaDriver,
       'Plat Mobil': d.platMobil || '-',
       'Jenis Mobil': d.jenisMobil || '-',
       'Diinput Oleh (Back Office)': d.namaBackOffice,
       'Status': d.status,
       'ID Batch Pick Up': d.idPickUpBatch || '-',
       'Waktu Pick Up': d.waktuPickUp ? formatDateTimeID(d.waktuPickUp) : '-',
+      'GPS Pick Up': (d.pickUpLat !== null && d.pickUpLat !== undefined && d.pickUpLat !== '') ? (d.pickUpLat + ', ' + d.pickUpLng) : '-',
+      'Maps Pick Up': buildGoogleMapsUrl(d.pickUpLat, d.pickUpLng),
       'Link Foto Pick Up': (d.pickUpFotos || []).join(' | '),
       'Waktu Check-In': d.waktuCheckIn ? formatDateTimeID(d.waktuCheckIn) : '-',
-      'GPS Check-In': d.checkInLat !== null ? d.checkInLat + ', ' + d.checkInLng : '-',
-      'Maps Check-In': buildGoogleMapsUrl(d.checkInLat, d.checkInLng),
+      'GPS Check-In / Selesai': (d.checkInLat !== null && d.checkInLat !== undefined && d.checkInLat !== '') ? (d.checkInLat + ', ' + d.checkInLng) : '-',
+      'Maps Check-In / Selesai': buildGoogleMapsUrl(d.checkInLat, d.checkInLng),
       'Nama Penerima': d.namaPenerima || '-',
       'Keterangan': d.keterangan || '-',
       'Link Foto Check-In': (d.checkInFotos || []).join(' | '),
       'Waktu Check-Out': d.waktuCheckOut ? formatDateTimeID(d.waktuCheckOut) : '-',
-      'GPS Check-Out': d.checkOutLat !== null ? d.checkOutLat + ', ' + d.checkOutLng : '-',
+      'GPS Check-Out': (d.checkOutLat !== null && d.checkOutLat !== undefined && d.checkOutLat !== '') ? (d.checkOutLat + ', ' + d.checkOutLng) : '-',
       'Maps Check-Out': buildGoogleMapsUrl(d.checkOutLat, d.checkOutLng),
       'Durasi Di Customer': formatDuration(d.waktuCheckIn, d.waktuCheckOut),
       'Waktu Gagal Kirim': d.waktuGagalKirim ? formatDateTimeID(d.waktuGagalKirim) : '-',
       'Alasan Gagal Kirim': d.alasanGagalKirim || '-',
-      'GPS Gagal Kirim': d.gagalKirimLat !== null ? d.gagalKirimLat + ', ' + d.gagalKirimLng : '-',
+      'GPS Gagal Kirim': (d.gagalKirimLat !== null && d.gagalKirimLat !== undefined && d.gagalKirimLat !== '') ? (d.gagalKirimLat + ', ' + d.gagalKirimLng) : '-',
       'Maps Gagal Kirim': buildGoogleMapsUrl(d.gagalKirimLat, d.gagalKirimLng),
       'Link Foto Gagal Kirim': (d.gagalKirimFotos || []).join(' | ')
     });
@@ -226,11 +238,11 @@ function exportReportToExcel(items, summary, filters) {
     var wb = window.XLSX.utils.book_new();
     var wsData = window.XLSX.utils.json_to_sheet(rows);
     wsData['!cols'] = [
-      { wch: 5 }, { wch: 18 }, { wch: 13 }, { wch: 20 }, { wch: 12 }, { wch: 18 },
-      { wch: 24 }, { wch: 30 }, { wch: 20 }, { wch: 16 }, { wch: 18 }, { wch: 20 }, { wch: 18 }, { wch: 18 },
-      { wch: 18 }, { wch: 40 }, { wch: 18 }, { wch: 22 }, { wch: 35 }, { wch: 20 },
-      { wch: 28 }, { wch: 40 }, { wch: 18 }, { wch: 22 }, { wch: 35 }, { wch: 16 },
-      { wch: 18 }, { wch: 30 }, { wch: 22 }, { wch: 35 }, { wch: 40 }
+      { wch: 5 }, { wch: 18 }, { wch: 13 }, { wch: 20 }, { wch: 15 }, { wch: 12 }, { wch: 18 },
+      { wch: 24 }, { wch: 30 }, { wch: 20 }, { wch: 16 }, { wch: 18 }, { wch: 20 }, { wch: 18 },
+      { wch: 18 }, { wch: 18 }, { wch: 22 }, { wch: 35 }, { wch: 40 }, { wch: 18 }, { wch: 22 },
+      { wch: 35 }, { wch: 20 }, { wch: 28 }, { wch: 40 }, { wch: 18 }, { wch: 22 }, { wch: 35 },
+      { wch: 16 }, { wch: 18 }, { wch: 30 }, { wch: 22 }, { wch: 35 }, { wch: 40 }
     ];
     window.XLSX.utils.book_append_sheet(wb, wsData, 'Laporan Delivery');
 
