@@ -334,7 +334,6 @@ function renderApp() {
       '<button type="button" class="dropdown-item ' + (STATE.currentPage === 'karyawan' ? 'active' : '') + '" onclick="navigateTo(\'karyawan\')">' + ICONS.users + '<span>Master Karyawan</span></button>' +
       '<button type="button" class="dropdown-item ' + (STATE.currentPage === 'customer' ? 'active' : '') + '" onclick="navigateTo(\'customer\')">' + ICONS.building + '<span>Master Customer</span></button>' +
       '<button type="button" class="dropdown-item ' + (STATE.currentPage === 'mobil' ? 'active' : '') + '" onclick="navigateTo(\'mobil\')">' + ICONS.truck + '<span>Master Mobil</span></button>' +
-      '<button type="button" class="dropdown-item" onclick="openApiSettingsModal()">' + ICONS.settings + '<span>Pengaturan Server API</span></button>' +
       '<button type="button" class="dropdown-item danger" onclick="handleLogout()">' + ICONS.logout + '<span>Keluar</span></button>';
   } else {
     navPrimary =
@@ -343,7 +342,6 @@ function renderApp() {
       '<button type="button" class="nav-btn ' + (STATE.currentPage === 'dashboard' ? 'active' : '') + '" onclick="navigateTo(\'dashboard\')">' + ICONS.dashboard + '<span>Ringkasan</span></button>';
 
     overflowItems =
-      '<button type="button" class="dropdown-item" onclick="openApiSettingsModal()">' + ICONS.settings + '<span>Pengaturan Server API</span></button>' +
       '<button type="button" class="dropdown-item danger" onclick="handleLogout()">' + ICONS.logout + '<span>Keluar</span></button>';
   }
 
@@ -487,8 +485,8 @@ function ensureDropdownsLoaded(forceRefresh, fetchOpts) {
 function renderLoginView() {
   var currentUrl = getApiUrl();
   var apiNotice = currentUrl
-    ? '<div class="alert-box alert-info" style="margin-bottom:14px">Terhubung ke Server Backend GAS. Siap masuk menggunakan akun Master Karyawan.</div>'
-    : '<div class="alert-box alert-warning" style="margin-bottom:14px">URL Server Backend GAS belum dipasang. Klik tombol <strong>Pengaturan Server API</strong> di bawah untuk menempel URL Web App (/exec).</div>';
+    ? ''
+    : '<div class="alert-box alert-warning" style="margin-bottom:14px">URL Server Backend GAS belum dipasang di config.js.</div>';
 
   return (
     '<div class="login-shell">' +
@@ -504,7 +502,7 @@ function renderLoginView() {
         '<form id="login-form" style="display:flex;flex-direction:column;gap:13px">' +
           '<div class="form-group">' +
             '<label class="form-label" for="login-username">Username <span class="req">*</span></label>' +
-            '<input id="login-username" class="form-control" type="text" placeholder="Contoh: backoffice atau driver1" autocomplete="username" required />' +
+            '<input id="login-username" class="form-control" type="text" placeholder="Masukkan username" autocomplete="username" required />' +
           '</div>' +
           '<div class="form-group">' +
             '<label class="form-label" for="login-password">Password / PIN <span class="req">*</span></label>' +
@@ -512,10 +510,6 @@ function renderLoginView() {
           '</div>' +
           '<button id="login-submit-btn" type="submit" class="btn btn-navy" style="width:100%;padding:11px">Masuk ke Aplikasi</button>' +
         '</form>' +
-        '<div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border-color);display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">' +
-          '<button type="button" class="btn btn-secondary btn-sm" onclick="openApiSettingsModal()">' + ICONS.settings + '<span>Pengaturan Server API</span></button>' +
-          '<span class="form-hint">Akun awal setup: backoffice / driver1</span>' +
-        '</div>' +
       '</div>' +
     '</div>'
   );
@@ -3059,8 +3053,10 @@ function submitCheckOutAktivitas() {
   callGasApi('checkOutAktivitas', {
     idMobil: idMobil,
     kmAwal: Number(kmVal),
+    fotoKmAwal: (STATE.modalPhotos && STATE.modalPhotos.length ? STATE.modalPhotos[0] : ''),
     photos: STATE.modalPhotos,
     gps: STATE.modalGps,
+    catatanBerangkat: catatan,
     catatan: catatan
   }).then(function (res) {
     closeModal();
@@ -3190,6 +3186,7 @@ function submitBbmAktivitas() {
     biayaBbm: Number(biayaVal),
     literBbm: literVal ? Number(literVal) : 0,
     jenisBbm: jenisVal,
+    fotoBbm: (STATE.modalPhotos && STATE.modalPhotos.length ? STATE.modalPhotos[0] : ''),
     photos: STATE.modalPhotos,
     gps: STATE.modalGps,
     catatan: catatan
@@ -3321,8 +3318,10 @@ function submitCheckInAktivitas() {
   callGasApi('checkInAktivitas', {
     idAktivitas: act.idAktivitas,
     kmAkhir: Number(kmVal),
+    fotoKmAkhir: (STATE.modalPhotos && STATE.modalPhotos.length ? STATE.modalPhotos[0] : ''),
     photos: STATE.modalPhotos,
     gps: STATE.modalGps,
+    catatanCheckIn: catatan,
     catatan: catatan
   }).then(function (res) {
     closeModal();
