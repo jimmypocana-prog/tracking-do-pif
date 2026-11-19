@@ -295,3 +295,281 @@ function exportReportToExcel(items, summary, filters) {
   showToast('Library Excel offline — data diunduh dalam format CSV.', 'info');
 }
 
+// ============================================================================
+// EXPORT LAPORAN AKTIVITAS DRIVER (OPERASIONAL KENDARAAN & BBM) KE PDF & EXCEL
+// ============================================================================
+
+function exportAktivitasToPdf(items, summary, filters) {
+  if (!items || !items.length) {
+    showToast('Tidak ada data aktivitas driver untuk diexport ke PDF.', 'warning');
+    return;
+  }
+
+  var periodText = (filters.dateFrom || 'Semua') + ' s/d ' + (filters.dateTo || 'Semua');
+  var printedAt = formatDateTimeID(new Date().toISOString());
+
+  if (window.jspdf && window.jspdf.jsPDF) {
+    var jsPDFCtor = window.jspdf.jsPDF;
+    var doc = new jsPDFCtor({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+
+    doc.setFillColor(15, 23, 42);
+    doc.rect(0, 0, 297, 22, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(13);
+    doc.setFont(undefined, 'bold');
+    doc.text('TRACKING DELIVERY ORDER - PIF | LAPORAN AKTIVITAS & BBM DRIVER', 12, 10);
+    doc.setFontSize(9);
+    doc.setFont(undefined, 'normal');
+    doc.text('Periode: ' + periodText + '   |   Dicetak: ' + printedAt, 12, 16.5);
+
+    doc.setTextColor(15, 23, 42);
+    doc.setFontSize(8.5);
+    var kpiText =
+      'Total Perjalanan: ' + (summary.totalPerjalanan || 0) +
+      '   |   Total KM Tempuh: ' + (summary.totalKmTempuh || 0) + ' km' +
+      '   |   Total Biaya BBM: Rp ' + (summary.totalBiayaBbm ? summary.totalBiayaBbm.toLocaleString('id-ID') : '0') +
+      ' (' + (summary.totalLiterBbm || 0) + ' L)' +
+      '   |   Selesai: ' + (summary.selesai || 0) +
+      '   |   Sedang Berangkat: ' + (summary.sedangBerangkat || 0);
+    doc.text(kpiText, 12, 29);
+
+    var head = [[
+      'No',
+      'ID Aktivitas',
+      'Tgl',
+      'Driver',
+      'Mobil',
+      'KM Awal',
+      'KM Akhir',
+      'Total KM',
+      'BBM (Rp / L)',
+      'Status',
+      'Berangkat & GPS',
+      'Check-In & GPS',
+      'Catatan'
+    ]];
+
+    var body = [];
+    for (var i = 0; i < items.length; i++) {
+      var d = items[i];
+      var mobilText = d.platMobil ? (d.platMobil + (d.jenisMobil ? '\n' + d.jenisMobil : '')) : '-';
+      var bbmText = (d.totalBiayaBbm > 0 || d.totalLiterBbm > 0)
+        ? 'Rp ' + d.totalBiayaBbm.toLocaleString('id-ID') + '\n' + d.totalLiterBbm + ' L'
+        : '-';
+      var brkText = d.waktuBerangkat
+        ? formatDateTimeID(d.waktuBerangkat) + (d.gpsBerangkatLat !== null ? '\nGPS: ' + d.gpsBerangkatLat + ', ' + d.gpsBerangkatLng : '')
+        : '-';
+      var cinText = d.waktuCheckIn
+        ? formatDateTimeID(d.waktuCheckIn) + (d.gpsCheckInLat !== null ? '\nGPS: ' + d.gpsCheckInLat + ', ' + d.gpsCheckInLng : '')
+        : (d.status === 'Sedang Berangkat' ? 'Sedang Berjalan' : '-');
+      var notes = (d.catatanBerangkat ? 'Brk: ' + d.catatanBerangkat : '') +
+        (d.catatanCheckIn ? (d.catatanBerangkat ? '\n' : '') + 'Plg: ' + d.catatanCheckIn : '');
+
+      body.push([
+        String(i + 1),
+        d.idAktivitas,
+        formatDateID(d.tanggal),
+        d.namaDriver,
+        mobilText,
+        String(d.kmAwal || 0),
+        d.kmAkhir !== null ? String(d.kmAkhir) : '-',
+        (d.totalKm || 0) + ' km',
+        bbmText,
+        d.status,
+        brkText,
+        cinText,
+        notes || '-'
+      ]);
+    }
+
+    if (typeof doc.autoTable === 'function') {
+      doc.autoTable({
+        startY: 33,
+        head: head,
+        body: body,
+        theme: 'grid',
+        styles: {
+          fontSize: 7.0,
+          cellPadding: 2.0,
+          valign: 'top',
+          textColor: [15, 23, 42]
+        },
+        headStyles: {
+          fillColor: [30, 41, 59],
+          textColor: [255, 255, 255],
+          fontStyle: 'bold'
+        },
+        columnStyles: {
+          0: { cellWidth: 7 },
+          1: { cellWidth: 23 },
+          2: { cellWidth: 17 },
+          3: { cellWidth: 22 },
+          4: { cellWidth: 22 },
+          5: { cellWidth: 16 },
+          6: { cellWidth: 16 },
+          7: { cellWidth: 16 },
+          8: { cellWidth: 22 },
+          9: { cellWidth: 20 },
+          10: { cellWidth: 32 },
+          11: { cellWidth: 32 },
+          12: { cellWidth: 32 }
+        },
+        margin: { left: 10, right: 10 }
+      });
+    }
+
+    var pdfName = 'Laporan_Aktivitas_Driver_' + getTodayYMD() + '.pdf';
+    if (window.AndroidApp && typeof window.AndroidApp.saveBase64File === 'function') {
+      var pdfDataUri = doc.output('datauristring');
+      window.AndroidApp.saveBase64File(pdfDataUri, pdfName, 'application/pdf');
+      showToast('Mengunduh PDF aktivitas driver ke folder Download HP...', 'success');
+      return;
+    }
+
+    doc.save(pdfName);
+    showToast('File PDF aktivitas driver berhasil diunduh.', 'success');
+    return;
+  }
+
+  // Fallback cetak HTML browser jika library offline
+  var win = window.open('', '_blank');
+  if (!win) {
+    showToast('Pop-up diblokir browser. Izinkan pop-up untuk mencetak PDF.', 'warning');
+    return;
+  }
+  var rowsHtml = '';
+  for (var j = 0; j < items.length; j++) {
+    var r = items[j];
+    rowsHtml += '<tr>' +
+      '<td>' + (j + 1) + '</td>' +
+      '<td>' + escapeHtml(r.idAktivitas) + '</td>' +
+      '<td>' + escapeHtml(formatDateID(r.tanggal)) + '</td>' +
+      '<td>' + escapeHtml(r.namaDriver) + '</td>' +
+      '<td>' + escapeHtml(r.platMobil) + ' (' + escapeHtml(r.jenisMobil) + ')</td>' +
+      '<td>' + (r.kmAwal || 0) + '</td>' +
+      '<td>' + (r.kmAkhir !== null ? r.kmAkhir : '-') + '</td>' +
+      '<td>' + (r.totalKm || 0) + ' km</td>' +
+      '<td>Rp ' + (r.totalBiayaBbm ? r.totalBiayaBbm.toLocaleString('id-ID') : '0') + ' (' + (r.totalLiterBbm || 0) + ' L)</td>' +
+      '<td>' + escapeHtml(r.status) + '</td>' +
+      '</tr>';
+  }
+  var htmlDoc = '<!DOCTYPE html><html><head><meta charset="utf-8"><title>Laporan Aktivitas Driver PIF</title>' +
+    '<style>body{font-family:sans-serif;font-size:11px;padding:16px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #cbd5e1;padding:6px;text-align:left}th{background:#0f172a;color:#fff}</style>' +
+    '</head><body><h2>Laporan Aktivitas Driver & BBM - PIF</h2>' +
+    '<p>Periode: ' + escapeHtml(periodText) + ' | Dicetak: ' + escapeHtml(printedAt) + '</p>' +
+    '<table><thead><tr><th>No</th><th>ID Aktivitas</th><th>Tgl</th><th>Driver</th><th>Mobil</th><th>KM Awal</th><th>KM Akhir</th><th>Total KM</th><th>Total BBM</th><th>Status</th></tr></thead>' +
+    '<tbody>' + rowsHtml + '</tbody></table></body></html>';
+  win.document.write(htmlDoc);
+  win.document.close();
+  win.focus();
+  win.print();
+}
+
+function exportAktivitasToExcel(items, summary, filters) {
+  if (!items || !items.length) {
+    showToast('Tidak ada data aktivitas untuk diexport ke Excel.', 'warning');
+    return;
+  }
+
+  var rows = [];
+  for (var i = 0; i < items.length; i++) {
+    var d = items[i];
+    rows.push({
+      'No': i + 1,
+      'ID Aktivitas': d.idAktivitas,
+      'Tanggal': d.tanggal,
+      'Nama Driver': d.namaDriver,
+      'Plat Mobil': d.platMobil || '-',
+      'Jenis Mobil': d.jenisMobil || '-',
+      'Status Perjalanan': d.status,
+      'Waktu Berangkat': d.waktuBerangkat ? formatDateTimeID(d.waktuBerangkat) : '-',
+      'Kilometer Awal': d.kmAwal || 0,
+      'GPS Berangkat': d.gpsBerangkatLat !== null ? d.gpsBerangkatLat + ', ' + d.gpsBerangkatLng : '-',
+      'Maps Berangkat': buildGoogleMapsUrl(d.gpsBerangkatLat, d.gpsBerangkatLng),
+      'Link Foto KM Awal': d.fotoKmAwal || '-',
+      'Waktu Check-In Kantor': d.waktuCheckIn ? formatDateTimeID(d.waktuCheckIn) : '-',
+      'Kilometer Akhir': d.kmAkhir !== null ? d.kmAkhir : '-',
+      'GPS Check-In': d.gpsCheckInLat !== null ? d.gpsCheckInLat + ', ' + d.gpsCheckInLng : '-',
+      'Maps Check-In': buildGoogleMapsUrl(d.gpsCheckInLat, d.gpsCheckInLng),
+      'Link Foto KM Akhir': d.fotoKmAkhir || '-',
+      'Total KM Tempuh': (d.totalKm || 0) + ' km',
+      'Total Biaya BBM (Rp)': d.totalBiayaBbm || 0,
+      'Total Liter BBM (L)': d.totalLiterBbm || 0,
+      'Catatan Berangkat': d.catatanBerangkat || '-',
+      'Catatan Check-In': d.catatanCheckIn || '-'
+    });
+  }
+
+  if (window.XLSX) {
+    var wb = window.XLSX.utils.book_new();
+    var wsData = window.XLSX.utils.json_to_sheet(rows);
+    wsData['!cols'] = [
+      { wch: 5 }, { wch: 18 }, { wch: 13 }, { wch: 20 }, { wch: 16 }, { wch: 18 },
+      { wch: 18 }, { wch: 20 }, { wch: 15 }, { wch: 22 }, { wch: 35 }, { wch: 35 },
+      { wch: 20 }, { wch: 15 }, { wch: 22 }, { wch: 35 }, { wch: 35 }, { wch: 16 },
+      { wch: 20 }, { wch: 18 }, { wch: 25 }, { wch: 25 }
+    ];
+    window.XLSX.utils.book_append_sheet(wb, wsData, 'Aktivitas Driver');
+
+    var summaryRows = [
+      { 'Metrik': 'Program', 'Nilai': 'Tracking Delivery Order - PIF' },
+      { 'Metrik': 'Laporan', 'Nilai': 'Aktivitas Harian Driver, KM & BBM' },
+      { 'Metrik': 'Periode Filter', 'Nilai': (filters.dateFrom || 'Semua') + ' s/d ' + (filters.dateTo || 'Semua') },
+      { 'Metrik': 'Total Perjalanan', 'Nilai': summary.totalPerjalanan || 0 },
+      { 'Metrik': 'Total KM Tempuh Armada', 'Nilai': (summary.totalKmTempuh || 0) + ' km' },
+      { 'Metrik': 'Total Pengeluaran BBM (Rp)', 'Nilai': summary.totalBiayaBbm || 0 },
+      { 'Metrik': 'Total Volume BBM (Liter)', 'Nilai': summary.totalLiterBbm || 0 },
+      { 'Metrik': 'Selesai', 'Nilai': summary.selesai || 0 },
+      { 'Metrik': 'Sedang Berangkat', 'Nilai': summary.sedangBerangkat || 0 }
+    ];
+    var wsSummary = window.XLSX.utils.json_to_sheet(summaryRows);
+    wsSummary['!cols'] = [{ wch: 34 }, { wch: 36 }];
+    window.XLSX.utils.book_append_sheet(wb, wsSummary, 'Ringkasan KPI');
+
+    var xlsxName = 'Laporan_Aktivitas_Driver_' + getTodayYMD() + '.xlsx';
+    if (window.AndroidApp && typeof window.AndroidApp.saveBase64File === 'function') {
+      var xlsxBase64 = window.XLSX.write(wb, { bookType: 'xlsx', type: 'base64' });
+      window.AndroidApp.saveBase64File(
+        xlsxBase64,
+        xlsxName,
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      );
+      showToast('Mengunduh Excel aktivitas ke folder Download HP...', 'success');
+      return;
+    }
+
+    window.XLSX.writeFile(wb, xlsxName);
+    showToast('File Excel (.xlsx) aktivitas driver berhasil diunduh.', 'success');
+    return;
+  }
+
+  // Fallback CSV UTF-8 BOM jika library offline
+  var headers = Object.keys(rows[0]);
+  var csvLines = [headers.join(',')];
+  for (var r = 0; r < rows.length; r++) {
+    var lineVals = [];
+    for (var h = 0; h < headers.length; h++) {
+      var val = String(rows[r][headers[h]] || '').replace(/"/g, '""');
+      lineVals.push('"' + val + '"');
+    }
+    csvLines.push(lineVals.join(','));
+  }
+  var csvName = 'Laporan_Aktivitas_Driver_' + getTodayYMD() + '.csv';
+  var csvContent = '\uFEFF' + csvLines.join('\n');
+  if (window.AndroidApp && typeof window.AndroidApp.saveBase64File === 'function') {
+    var csvBase64 = btoa(unescape(encodeURIComponent(csvContent)));
+    window.AndroidApp.saveBase64File(csvBase64, csvName, 'text/csv');
+    showToast('Menyimpan CSV aktivitas ke folder Download HP...', 'info');
+    return;
+  }
+
+  var blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  var link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = csvName;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  showToast('Data aktivitas diunduh dalam format CSV.', 'info');
+}
+

@@ -74,6 +74,24 @@ var STATE = {
     filters: { dateFrom: '', dateTo: '', driverId: '', customerId: '', status: '', search: '' }
   },
 
+  aktivitas: {
+    hasActive: false,
+    active: null,
+    lastAktivitas: null,
+    bbmList: [],
+    loading: false
+  },
+
+  laporanAktivitas: {
+    items: [],
+    total: 0,
+    page: 1,
+    limit: 15,
+    totalPages: 1,
+    summary: { total: 0, selesai: 0, sedangBerangkat: 0, totalKm: 0, totalBiayaBbm: 0, totalLiterBbm: 0 },
+    filters: { dateFrom: '', dateTo: '', driverId: '', platMobil: '', status: '', search: '' }
+  },
+
   modalPhotos: [],
   modalTargetIds: [],
   modalGps: null,
@@ -219,6 +237,10 @@ function isUiBusyForBackgroundSync() {
   if (repSearch && repSearch.value.trim() !== STATE.report.filters.search) {
     return true;
   }
+  var aktSearch = document.getElementById('akt-rep-search');
+  if (aktSearch && aktSearch.value.trim() !== STATE.laporanAktivitas.filters.search) {
+    return true;
+  }
   return false;
 }
 
@@ -308,6 +330,7 @@ function renderApp() {
     overflowItems =
       '<button type="button" class="dropdown-item mobile-only-nav ' + (STATE.currentPage === 'monitor' ? 'active' : '') + '" onclick="navigateTo(\'monitor\')">' + ICONS.mapPin + '<span>Tracking Monitor</span></button>' +
       '<button type="button" class="dropdown-item mobile-only-nav ' + (STATE.currentPage === 'report' ? 'active' : '') + '" onclick="navigateTo(\'report\')">' + ICONS.fileText + '<span>Laporan Delivery</span></button>' +
+      '<button type="button" class="dropdown-item ' + (STATE.currentPage === 'laporan-aktivitas' ? 'active' : '') + '" onclick="navigateTo(\'laporan-aktivitas\')">' + ICONS.truck + '<span>Laporan Aktivitas Driver</span></button>' +
       '<button type="button" class="dropdown-item ' + (STATE.currentPage === 'karyawan' ? 'active' : '') + '" onclick="navigateTo(\'karyawan\')">' + ICONS.users + '<span>Master Karyawan</span></button>' +
       '<button type="button" class="dropdown-item ' + (STATE.currentPage === 'customer' ? 'active' : '') + '" onclick="navigateTo(\'customer\')">' + ICONS.building + '<span>Master Customer</span></button>' +
       '<button type="button" class="dropdown-item ' + (STATE.currentPage === 'mobil' ? 'active' : '') + '" onclick="navigateTo(\'mobil\')">' + ICONS.truck + '<span>Master Mobil</span></button>' +
@@ -315,6 +338,7 @@ function renderApp() {
       '<button type="button" class="dropdown-item danger" onclick="handleLogout()">' + ICONS.logout + '<span>Keluar</span></button>';
   } else {
     navPrimary =
+      '<button type="button" class="nav-btn ' + (STATE.currentPage === 'aktivitas-driver' ? 'active' : '') + '" onclick="navigateTo(\'aktivitas-driver\')">' + ICONS.clock + '<span>Aktivitas</span></button>' +
       '<button type="button" class="nav-btn ' + (STATE.currentPage === 'tracking-driver' ? 'active' : '') + '" onclick="navigateTo(\'tracking-driver\')">' + ICONS.truck + '<span>Tracking Driver</span></button>' +
       '<button type="button" class="nav-btn ' + (STATE.currentPage === 'dashboard' ? 'active' : '') + '" onclick="navigateTo(\'dashboard\')">' + ICONS.dashboard + '<span>Ringkasan</span></button>';
 
@@ -340,6 +364,10 @@ function renderApp() {
     pageBody = renderMobilView();
   } else if (STATE.currentPage === 'report') {
     pageBody = renderReportView();
+  } else if (STATE.currentPage === 'aktivitas-driver') {
+    pageBody = renderAktivitasDriverView();
+  } else if (STATE.currentPage === 'laporan-aktivitas') {
+    pageBody = renderLaporanAktivitasView();
   }
 
   root.innerHTML =
@@ -397,6 +425,14 @@ function loadActivePageData(forceRefresh, fetchOpts) {
     ensureDropdownsLoaded(forceRefresh, opts).then(function () {
       fetchReportData(forceRefresh, opts);
     });
+  } else if (p === 'aktivitas-driver') {
+    ensureDropdownsLoaded(forceRefresh, opts).then(function () {
+      fetchAktivitasDriverData(forceRefresh, opts);
+    });
+  } else if (p === 'laporan-aktivitas') {
+    ensureDropdownsLoaded(forceRefresh, opts).then(function () {
+      fetchLaporanAktivitasData(forceRefresh, opts);
+    });
   }
 }
 
@@ -427,13 +463,13 @@ function ensureDropdownsLoaded(forceRefresh, fetchOpts) {
         if (STATE.lastSnapshots.dropdowns !== freshSnap) {
           STATE.dropdowns = normFresh;
           STATE.lastSnapshots.dropdowns = freshSnap;
-          if (!isUiBusyForBackgroundSync() && (STATE.currentPage === 'orders' || STATE.currentPage === 'monitor' || STATE.currentPage === 'report')) {
+          if (!isUiBusyForBackgroundSync() && (STATE.currentPage === 'orders' || STATE.currentPage === 'monitor' || STATE.currentPage === 'report' || STATE.currentPage === 'aktivitas-driver' || STATE.currentPage === 'laporan-aktivitas')) {
             renderApp();
           }
         }
       }).catch(function () {});
     } else if (changed && fetchOpts && fetchOpts.silent && !isUiBusyForBackgroundSync()) {
-      if (STATE.currentPage === 'orders' || STATE.currentPage === 'monitor' || STATE.currentPage === 'report') {
+      if (STATE.currentPage === 'orders' || STATE.currentPage === 'monitor' || STATE.currentPage === 'report' || STATE.currentPage === 'aktivitas-driver' || STATE.currentPage === 'laporan-aktivitas') {
         renderApp();
       }
     }
@@ -2741,6 +2777,859 @@ function renderReportView() {
       renderPaginationBar(STATE.report.page, STATE.report.totalPages, STATE.report.total, 'changeReportPage') +
     '</div>'
   );
+}
+
+// ============================================================================
+// MENU AKTIVITAS DRIVER (CHECK-OUT, ISI BBM, CHECK-IN KANTOR)
+// ============================================================================
+
+function fetchAktivitasDriverData(forceRefresh, fetchOpts) {
+  if (!STATE.session || !STATE.session.user) {
+    return Promise.resolve();
+  }
+  var driverId = STATE.session.user.idKaryawan;
+  var cacheKey = 'aktivitas_driver_' + driverId;
+  var isSilent = Boolean(fetchOpts && fetchOpts.silent);
+
+  if (!isSilent) {
+    STATE.aktivitas.loading = true;
+  }
+
+  return callGasApi('getActiveAktivitas', { driverId: driverId }, {
+    cacheKey: cacheKey,
+    forceRefresh: Boolean(forceRefresh)
+  }).then(function (data) {
+    STATE.aktivitas.loading = false;
+    var res = data || { hasActive: false, aktivitas: null, lastAktivitas: null, bbmList: [] };
+    var snap = JSON.stringify(res);
+    var changed = STATE.lastSnapshots[cacheKey] !== snap;
+    STATE.lastSnapshots[cacheKey] = snap;
+
+    STATE.aktivitas.hasActive = Boolean(res.hasActive);
+    STATE.aktivitas.active = res.aktivitas || null;
+    STATE.aktivitas.lastAktivitas = res.lastAktivitas || null;
+    STATE.aktivitas.bbmList = res.bbmList || [];
+
+    if (STATE.currentPage === 'aktivitas-driver' && (!isSilent || (changed && !isUiBusyForBackgroundSync()))) {
+      renderApp();
+    }
+  }).catch(function (err) {
+    STATE.aktivitas.loading = false;
+    if (!isSilent) {
+      showToast('Gagal memuat status aktivitas: ' + err.message, 'error');
+    }
+  });
+}
+
+function renderAktivitasDriverView() {
+  var act = STATE.aktivitas.active;
+  var last = STATE.aktivitas.lastAktivitas;
+  var bbmList = STATE.aktivitas.bbmList || [];
+  var heroHtml = '';
+
+  if (act) {
+    // Sedang Berangkat
+    var mapsBerangkat = (act.gpsBerangkatLat && act.gpsBerangkatLng)
+      ? buildGoogleMapsUrl(act.gpsBerangkatLat, act.gpsBerangkatLng)
+      : '';
+    var fotoKmAwalLink = act.fotoKmAwal
+      ? '<a class="btn btn-secondary btn-sm" target="_blank" rel="noopener" href="' + escapeHtml(act.fotoKmAwal) + '">' + ICONS.eye + '<span>Foto KM Awal</span></a>'
+      : '';
+
+    heroHtml =
+      '<div class="trip-hero ongoing">' +
+        '<div class="trip-hero-header">' +
+          '<div>' +
+            '<div style="margin-bottom:8px">' +
+              '<span class="badge" style="background:#10b981;color:#ffffff;font-size:12px;padding:4px 10px;font-weight:700">Sedang Berangkat</span>' +
+              ' <span class="vehicle-tag" style="background:rgba(255,255,255,0.15);color:#ffffff;border:none">' + escapeHtml(act.idAktivitas) + '</span>' +
+            '</div>' +
+            '<h2 class="trip-hero-title">' + ICONS.truck + '<span>' + escapeHtml(act.platMobil) + '</span></h2>' +
+            '<p class="trip-hero-subtitle">' + escapeHtml(act.jenisMobil || 'Armada Operasional') + ' · Berangkat: ' + formatDateTimeID(act.waktuBerangkat) + '</p>' +
+          '</div>' +
+          '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">' +
+            fotoKmAwalLink +
+            (mapsBerangkat ? '<a class="btn btn-secondary btn-sm" target="_blank" rel="noopener" href="' + escapeHtml(mapsBerangkat) + '">' + ICONS.mapPin + '<span>GPS Berangkat</span></a>' : '') +
+          '</div>' +
+        '</div>' +
+        '<div class="trip-stat-grid">' +
+          '<div class="trip-stat-item"><span class="trip-stat-label">Odometer Awal</span><span class="trip-stat-value"><span class="odometer-badge">' + formatNumberID(act.kmAwal) + ' KM</span></span></div>' +
+          '<div class="trip-stat-item"><span class="trip-stat-label">Total Isi BBM</span><span class="trip-stat-value">Rp ' + formatNumberID(act.totalBiayaBbm || 0) + '</span></div>' +
+          '<div class="trip-stat-item"><span class="trip-stat-label">Volume BBM</span><span class="trip-stat-value">' + (act.totalLiterBbm || 0) + ' Liter</span></div>' +
+          '<div class="trip-stat-item"><span class="trip-stat-label">Frekuensi BBM</span><span class="trip-stat-value">' + bbmList.length + ' Kali</span></div>' +
+        '</div>' +
+        '<div class="trip-hero-actions">' +
+          '<button type="button" class="btn btn-emerald" style="padding:12px 20px;font-size:14px" onclick="openBbmModal()">' + ICONS.fuel + '<span>Isi BBM di SPBU</span></button>' +
+          '<button type="button" class="btn btn-navy" style="background:#ffffff;color:#0f172a;padding:12px 20px;font-size:14px" onclick="openCheckInAktivitasModal()">' + ICONS.check + '<span>Check-In (Tiba di Kantor)</span></button>' +
+        '</div>' +
+      '</div>';
+  } else {
+    // Belum Berangkat / Selesai
+    var lastInfo = '';
+    if (last) {
+      lastInfo =
+        '<div style="margin-top:16px;padding:12px 14px;background:rgba(255,255,255,0.08);border-radius:var(--radius-sm);font-size:12.5px">' +
+          '<strong>Perjalanan Terakhir:</strong> ' + escapeHtml(last.platMobil) + ' (' + formatDateID(last.tanggal) + ') · Total Jarak: <strong>' + formatNumberID(last.totalKm) + ' KM</strong> · Total BBM: <strong>Rp ' + formatNumberID(last.totalBiayaBbm) + '</strong>' +
+        '</div>';
+    }
+
+    heroHtml =
+      '<div class="trip-hero idle">' +
+        '<div class="trip-hero-header">' +
+          '<div>' +
+            '<div style="margin-bottom:8px"><span class="badge" style="background:#64748b;color:#ffffff;font-size:12px;padding:4px 10px">Armada Siap</span></div>' +
+            '<h2 class="trip-hero-title">' + ICONS.truck + '<span>Siap Berangkat Tugas</span></h2>' +
+            '<p class="trip-hero-subtitle">Mulai perjalanan dinas harian atau pengiriman barang dengan melakukan Check-Out keberangkatan.</p>' +
+          '</div>' +
+        '</div>' +
+        '<div class="trip-hero-actions">' +
+          '<button type="button" class="btn btn-primary" style="padding:14px 24px;font-size:15px;font-weight:700" onclick="openCheckOutAktivitasModal()">' + ICONS.truck + '<span>Check-Out (Berangkat dari Kantor)</span></button>' +
+        '</div>' +
+        lastInfo +
+      '</div>';
+  }
+
+  // Riwayat Pengisian BBM Sesi Ini
+  var bbmListHtml = '';
+  if (act) {
+    if (!bbmList.length) {
+      bbmListHtml = '<div class="empty-state" style="padding:28px 16px">Belum ada pengisian BBM selama sesi perjalanan ini. Klik "Isi BBM di SPBU" jika melakukan pengisian bahan bakar.</div>';
+    } else {
+      var itemsHtml = '';
+      for (var b = 0; b < bbmList.length; b++) {
+        var item = bbmList[b];
+        var itemGpsUrl = (item.gpsLat && item.gpsLng) ? buildGoogleMapsUrl(item.gpsLat, item.gpsLng) : '';
+        var itemFotoLink = item.fotoBbm
+          ? '<a class="btn btn-secondary btn-sm" target="_blank" rel="noopener" href="' + escapeHtml(item.fotoBbm) + '">' + ICONS.eye + '<span>Foto Struk</span></a>'
+          : '';
+        var itemGpsBtn = itemGpsUrl
+          ? '<a class="btn btn-secondary btn-sm" target="_blank" rel="noopener" href="' + escapeHtml(itemGpsUrl) + '">' + ICONS.mapPin + '<span>Peta SPBU</span></a>'
+          : '';
+
+        itemsHtml +=
+          '<div class="bbm-item">' +
+            '<div class="bbm-item-left">' +
+              '<div class="bbm-icon-box">' + ICONS.fuel + '</div>' +
+              '<div>' +
+                '<div class="bbm-item-title">' + escapeHtml(item.jenisBbm || 'BBM') + ' · <span class="odometer-badge" style="font-size:11px;padding:2px 6px">' + formatNumberID(item.kmBbm) + ' KM</span></div>' +
+                '<div class="bbm-item-meta">' +
+                  '<span>' + formatDateTimeID(item.waktuBbm) + '</span>' +
+                  (item.catatan ? '<span>· ' + escapeHtml(item.catatan) + '</span>' : '') +
+                '</div>' +
+              '</div>' +
+            '</div>' +
+            '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:flex-end">' +
+              '<div class="bbm-item-right">' +
+                '<div class="bbm-item-cost">Rp ' + formatNumberID(item.biayaBbm) + '</div>' +
+                '<div class="bbm-item-volume">' + (item.literBbm || 0) + ' Liter</div>' +
+              '</div>' +
+              itemFotoLink +
+              itemGpsBtn +
+            '</div>' +
+          '</div>';
+      }
+      bbmListHtml = '<div class="bbm-timeline">' + itemsHtml + '</div>';
+    }
+  }
+
+  return (
+    '<div class="page-header">' +
+      '<div>' +
+        '<h2 class="page-title">Aktivitas Operasional Driver</h2>' +
+        '<p class="page-subtitle">Pencatatan keberangkatan armada, kilometer odometer, pengisian BBM di jalan, dan check-in kantor</p>' +
+      '</div>' +
+      '<div class="header-actions">' +
+        renderSyncStatusBadge() +
+        '<button type="button" class="btn btn-secondary btn-sm" onclick="fetchAktivitasDriverData(true)">' + ICONS.refresh + '<span>Perbarui</span></button>' +
+      '</div>' +
+    '</div>' +
+    heroHtml +
+    (act ? '<div class="card" style="margin-top:20px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px"><h3 style="margin:0;font-size:16px;font-weight:700">Rincian Pengisian BBM Sesi Ini</h3><button type="button" class="btn btn-secondary btn-sm" onclick="openBbmModal()">' + ICONS.plus + '<span>Catat Isi BBM</span></button></div>' + bbmListHtml + '</div>' : '')
+  );
+}
+
+// ----------------------------------------------------------------------------
+// MODAL CHECK-OUT (BERANGKAT)
+// ----------------------------------------------------------------------------
+
+function openCheckOutAktivitasModal() {
+  STATE.modalPhotos = [];
+  STATE.modalGps = null;
+  STATE.modalGpsLoading = false;
+  STATE.modalGpsError = '';
+
+  var mobils = (STATE.dropdowns && STATE.dropdowns.mobils) || [];
+  var mobilOpts = '<option value="">-- Pilih Kendaraan / Plat Mobil --</option>';
+  for (var m = 0; m < mobils.length; m++) {
+    var mob = mobils[m];
+    var label = mob.platMobil + (mob.jenisMobil ? ' (' + mob.jenisMobil + ')' : '');
+    mobilOpts += '<option value="' + escapeHtml(mob.idMobil) + '">' + escapeHtml(label) + '</option>';
+  }
+
+  var body =
+    '<div class="modal-header">' +
+      '<h3 class="modal-title">Check-Out (Berangkat dari Kantor)</h3>' +
+      '<button type="button" class="modal-close" onclick="closeModal()">' + ICONS.x + '</button>' +
+    '</div>' +
+    '<div class="modal-body">' +
+      '<div class="form-group">' +
+        '<label class="form-label">Pilih Kendaraan / Plat Mobil <span class="req">*</span></label>' +
+        '<select id="akt-out-mobil" class="form-control">' + mobilOpts + '</select>' +
+      '</div>' +
+      '<div class="form-group">' +
+        '<label class="form-label">Kilometer Awal (Odometer Speedometer) <span class="req">*</span></label>' +
+        '<input id="akt-out-km" class="form-control" type="number" min="0" placeholder="Contoh: 125000" />' +
+        '<span class="form-hint">Ketik angka kilometer yang tertera di speedometer saat mobil hendak berangkat.</span>' +
+      '</div>' +
+      renderPhotoSlotsHtml('Foto Kilometer Awal (Speedometer)', false) +
+      '<div class="form-group">' +
+        '<label class="form-label">Koordinat GPS Keberangkatan <span class="req">*</span></label>' +
+        renderGpsStatusBox() +
+      '</div>' +
+      '<div class="form-group">' +
+        '<label class="form-label">Catatan / Tujuan Keberangkatan (Opsional)</label>' +
+        '<textarea id="akt-out-catatan" class="form-control" rows="2" placeholder="Contoh: Pengiriman area Jakarta Barat & Tangerang..."></textarea>' +
+      '</div>' +
+    '</div>' +
+    '<div class="modal-footer">' +
+      '<button type="button" class="btn btn-secondary" onclick="closeModal()">Batal</button>' +
+      '<button id="btn-submit-checkout-akt" type="button" class="btn btn-primary" onclick="submitCheckOutAktivitas()">' + ICONS.truck + '<span>Berangkat Sekarang</span></button>' +
+    '</div>';
+
+  openModal(body, false);
+  acquireModalGps();
+}
+
+function submitCheckOutAktivitas() {
+  var idMobil = document.getElementById('akt-out-mobil').value;
+  var kmVal = document.getElementById('akt-out-km').value;
+  var catatan = document.getElementById('akt-out-catatan').value.trim();
+
+  if (!idMobil) {
+    showToast('Pilih kendaraan / plat mobil terlebih dahulu.', 'warning');
+    return;
+  }
+  if (!kmVal || isNaN(Number(kmVal)) || Number(kmVal) < 0) {
+    showToast('Ketik kilometer awal odometer dengan angka yang valid.', 'warning');
+    return;
+  }
+  if (!STATE.modalPhotos.length) {
+    showToast('Wajib mengambil minimal 1 foto kilometer awal (speedometer).', 'warning');
+    return;
+  }
+  if (!STATE.modalGps) {
+    showToast('Koordinat GPS wajib aktif dan terkunci sebelum berangkat.', 'warning');
+    return;
+  }
+
+  var btn = document.getElementById('btn-submit-checkout-akt');
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span><span>Menyimpan Keberangkatan...</span>';
+  }
+
+  callGasApi('checkOutAktivitas', {
+    idMobil: idMobil,
+    kmAwal: Number(kmVal),
+    photos: STATE.modalPhotos,
+    gps: STATE.modalGps,
+    catatan: catatan
+  }).then(function (res) {
+    closeModal();
+    showToast(res.message || 'Check-Out Berangkat berhasil! Selamat bertugas.', 'success');
+    clearApiCache();
+    fetchAktivitasDriverData(true);
+  }).catch(function (err) {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = ICONS.truck + '<span>Berangkat Sekarang</span>';
+    }
+    showToast(err.message, 'error');
+  });
+}
+
+// ----------------------------------------------------------------------------
+// MODAL ISI BBM DI JALAN
+// ----------------------------------------------------------------------------
+
+function openBbmModal() {
+  var act = STATE.aktivitas.active;
+  if (!act) {
+    showToast('Tidak ada perjalanan aktif. Silakan Check-Out Berangkat terlebih dahulu.', 'warning');
+    return;
+  }
+
+  STATE.modalPhotos = [];
+  STATE.modalGps = null;
+  STATE.modalGpsLoading = false;
+  STATE.modalGpsError = '';
+
+  var jenisOpts =
+    '<option value="Solar">Solar / Biosolar</option>' +
+    '<option value="Dexlite">Dexlite</option>' +
+    '<option value="Pertamina Dex">Pertamina Dex</option>' +
+    '<option value="Pertalite">Pertalite</option>' +
+    '<option value="Pertamax" selected>Pertamax</option>' +
+    '<option value="Pertamax Turbo">Pertamax Turbo</option>' +
+    '<option value="Lainnya">Lainnya</option>';
+
+  var body =
+    '<div class="modal-header">' +
+      '<h3 class="modal-title">Catat Pengisian BBM di SPBU</h3>' +
+      '<button type="button" class="modal-close" onclick="closeModal()">' + ICONS.x + '</button>' +
+    '</div>' +
+    '<div class="modal-body">' +
+      '<div style="margin-bottom:14px;padding:10px 14px;background:var(--bg-subtle);border-radius:var(--radius-sm);font-size:12.5px">' +
+        'Armada: <strong>' + escapeHtml(act.platMobil) + '</strong> · KM Awal Berangkat: <strong>' + formatNumberID(act.kmAwal) + ' KM</strong>' +
+      '</div>' +
+      '<div class="form-group">' +
+        '<label class="form-label">Kilometer saat Isi BBM <span class="req">*</span></label>' +
+        '<input id="akt-bbm-km" class="form-control" type="number" min="' + act.kmAwal + '" placeholder="Contoh: ' + (act.kmAwal + 30) + '" />' +
+        '<span class="form-hint">Kilometer odometer speedometer mobil saat tiba di SPBU (harus >= ' + formatNumberID(act.kmAwal) + ' KM).</span>' +
+      '</div>' +
+      '<div class="form-grid">' +
+        '<div class="form-group">' +
+          '<label class="form-label">Biaya / Total Pembelian (Rp) <span class="req">*</span></label>' +
+          '<input id="akt-bbm-biaya" class="form-control" type="number" min="0" placeholder="Contoh: 150000" />' +
+        '</div>' +
+        '<div class="form-group">' +
+          '<label class="form-label">Jumlah Liter</label>' +
+          '<input id="akt-bbm-liter" class="form-control" type="number" step="0.01" min="0" placeholder="Contoh: 15.2" />' +
+        '</div>' +
+      '</div>' +
+      '<div class="form-group">' +
+        '<label class="form-label">Jenis BBM</label>' +
+        '<select id="akt-bbm-jenis" class="form-control">' + jenisOpts + '</select>' +
+      '</div>' +
+      renderPhotoSlotsHtml('Foto Struk SPBU / Dispenser / Meteran', false) +
+      '<div class="form-group">' +
+        '<label class="form-label">Koordinat GPS Lokasi SPBU <span class="req">*</span></label>' +
+        renderGpsStatusBox() +
+      '</div>' +
+      '<div class="form-group">' +
+        '<label class="form-label">Catatan Tambahan (Opsional)</label>' +
+        '<input id="akt-bbm-catatan" class="form-control" type="text" placeholder="Contoh: SPBU Pertamina Daan Mogot KM 12..." />' +
+      '</div>' +
+    '</div>' +
+    '<div class="modal-footer">' +
+      '<button type="button" class="btn btn-secondary" onclick="closeModal()">Batal</button>' +
+      '<button id="btn-submit-bbm-akt" type="button" class="btn btn-emerald" onclick="submitBbmAktivitas()">' + ICONS.check + '<span>Simpan Pengisian BBM</span></button>' +
+    '</div>';
+
+  openModal(body, false);
+  acquireModalGps();
+}
+
+function submitBbmAktivitas() {
+  var act = STATE.aktivitas.active;
+  if (!act) {
+    showToast('Tidak ada perjalanan aktif.', 'warning');
+    return;
+  }
+
+  var kmVal = document.getElementById('akt-bbm-km').value;
+  var biayaVal = document.getElementById('akt-bbm-biaya').value;
+  var literVal = document.getElementById('akt-bbm-liter').value;
+  var jenisVal = document.getElementById('akt-bbm-jenis').value;
+  var catatan = document.getElementById('akt-bbm-catatan').value.trim();
+
+  if (!kmVal || isNaN(Number(kmVal)) || Number(kmVal) < act.kmAwal) {
+    showToast('Kilometer pengisian harus berupa angka dan minimal ' + formatNumberID(act.kmAwal) + ' KM.', 'warning');
+    return;
+  }
+  if (!biayaVal || isNaN(Number(biayaVal)) || Number(biayaVal) <= 0) {
+    showToast('Biaya pembelian BBM harus diisi dengan nominal angka yang valid.', 'warning');
+    return;
+  }
+  if (!STATE.modalPhotos.length) {
+    showToast('Wajib mengambil minimal 1 foto struk SPBU atau meteran dispenser.', 'warning');
+    return;
+  }
+  if (!STATE.modalGps) {
+    showToast('Koordinat GPS SPBU wajib aktif dan terkunci.', 'warning');
+    return;
+  }
+
+  var btn = document.getElementById('btn-submit-bbm-akt');
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span><span>Menyimpan Transaksi BBM...</span>';
+  }
+
+  callGasApi('saveBbmAktivitas', {
+    idAktivitas: act.idAktivitas,
+    kmBbm: Number(kmVal),
+    biayaBbm: Number(biayaVal),
+    literBbm: literVal ? Number(literVal) : 0,
+    jenisBbm: jenisVal,
+    photos: STATE.modalPhotos,
+    gps: STATE.modalGps,
+    catatan: catatan
+  }).then(function (res) {
+    closeModal();
+    showToast(res.message || 'Catatan pengisian BBM berhasil disimpan!', 'success');
+    clearApiCache();
+    fetchAktivitasDriverData(true);
+  }).catch(function (err) {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = ICONS.check + '<span>Simpan Pengisian BBM</span>';
+    }
+    showToast(err.message, 'error');
+  });
+}
+
+// ----------------------------------------------------------------------------
+// MODAL CHECK-IN (TIBA DI KANTOR / SELESAI TUGAS)
+// ----------------------------------------------------------------------------
+
+function openCheckInAktivitasModal() {
+  var act = STATE.aktivitas.active;
+  if (!act) {
+    showToast('Tidak ada perjalanan aktif.', 'warning');
+    return;
+  }
+
+  STATE.modalPhotos = [];
+  STATE.modalGps = null;
+  STATE.modalGpsLoading = false;
+  STATE.modalGpsError = '';
+
+  var body =
+    '<div class="modal-header">' +
+      '<h3 class="modal-title">Check-In (Tiba Kembali di Kantor)</h3>' +
+      '<button type="button" class="modal-close" onclick="closeModal()">' + ICONS.x + '</button>' +
+    '</div>' +
+    '<div class="modal-body">' +
+      '<div style="margin-bottom:14px;padding:12px 14px;background:var(--bg-subtle);border-radius:var(--radius-sm);font-size:12.5px">' +
+        'Armada: <strong>' + escapeHtml(act.platMobil) + '</strong> (' + escapeHtml(act.jenisMobil || '-') + ')<br />' +
+        'KM Awal Berangkat: <strong>' + formatNumberID(act.kmAwal) + ' KM</strong> · Total Isi BBM: <strong>Rp ' + formatNumberID(act.totalBiayaBbm || 0) + '</strong>' +
+      '</div>' +
+      '<div class="form-group">' +
+        '<label class="form-label">Kilometer Akhir Speedometer <span class="req">*</span></label>' +
+        '<input id="akt-in-km" class="form-control" type="number" min="' + act.kmAwal + '" placeholder="Contoh: ' + (act.kmAwal + 85) + '" oninput="calculateTripKmCheckIn()" />' +
+        '<span class="form-hint">Ketik angka odometer saat tiba di kantor (harus >= KM Awal).</span>' +
+      '</div>' +
+      '<div class="km-calc-display">' +
+        '<span>Total Jarak Tempuh Sesi Ini:</span>' +
+        '<span id="akt-in-calc-display" class="km-calc-number">0 KM</span>' +
+      '</div>' +
+      renderPhotoSlotsHtml('Foto Kilometer Akhir (Speedometer)', false) +
+      '<div class="form-group">' +
+        '<label class="form-label">Koordinat GPS Kantor <span class="req">*</span></label>' +
+        renderGpsStatusBox() +
+      '</div>' +
+      '<div class="form-group">' +
+        '<label class="form-label">Catatan Kepulangan / Kondisi Armada (Opsional)</label>' +
+        '<textarea id="akt-in-catatan" class="form-control" rows="2" placeholder="Contoh: Pengiriman selesai lancar, sisa BBM 1/2 tangki..."></textarea>' +
+      '</div>' +
+    '</div>' +
+    '<div class="modal-footer">' +
+      '<button type="button" class="btn btn-secondary" onclick="closeModal()">Batal</button>' +
+      '<button id="btn-submit-checkin-akt" type="button" class="btn btn-primary" onclick="submitCheckInAktivitas()">' + ICONS.check + '<span>Selesai & Check-In Kantor</span></button>' +
+    '</div>';
+
+  openModal(body, false);
+  acquireModalGps();
+}
+
+function calculateTripKmCheckIn() {
+  var act = STATE.aktivitas.active;
+  if (!act) {
+    return;
+  }
+  var inputEl = document.getElementById('akt-in-km');
+  var displayEl = document.getElementById('akt-in-calc-display');
+  if (!inputEl || !displayEl) {
+    return;
+  }
+
+  var val = Number(inputEl.value);
+  if (!inputEl.value || isNaN(val)) {
+    displayEl.textContent = '0 KM';
+    displayEl.style.color = 'var(--text-muted)';
+    return;
+  }
+
+  var diff = val - act.kmAwal;
+  if (diff >= 0) {
+    displayEl.textContent = formatNumberID(diff) + ' KM';
+    displayEl.style.color = 'var(--emerald)';
+  } else {
+    displayEl.textContent = 'KM Akhir < KM Awal (' + formatNumberID(diff) + ' KM)';
+    displayEl.style.color = 'var(--rose)';
+  }
+}
+
+function submitCheckInAktivitas() {
+  var act = STATE.aktivitas.active;
+  if (!act) {
+    showToast('Tidak ada perjalanan aktif.', 'warning');
+    return;
+  }
+
+  var kmVal = document.getElementById('akt-in-km').value;
+  var catatan = document.getElementById('akt-in-catatan').value.trim();
+
+  if (!kmVal || isNaN(Number(kmVal)) || Number(kmVal) < act.kmAwal) {
+    showToast('Kilometer akhir harus berupa angka dan minimal sama dengan KM Awal (' + formatNumberID(act.kmAwal) + ' KM).', 'warning');
+    return;
+  }
+  if (!STATE.modalPhotos.length) {
+    showToast('Wajib mengambil minimal 1 foto speedometer / kilometer akhir.', 'warning');
+    return;
+  }
+  if (!STATE.modalGps) {
+    showToast('Koordinat GPS kantor wajib aktif dan terkunci.', 'warning');
+    return;
+  }
+
+  var btn = document.getElementById('btn-submit-checkin-akt');
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span><span>Menyimpan Check-In Kantor...</span>';
+  }
+
+  callGasApi('checkInAktivitas', {
+    idAktivitas: act.idAktivitas,
+    kmAkhir: Number(kmVal),
+    photos: STATE.modalPhotos,
+    gps: STATE.modalGps,
+    catatan: catatan
+  }).then(function (res) {
+    closeModal();
+    showToast(res.message || 'Check-In kantor berhasil disimpan! Status perjalanan selesai.', 'success');
+    clearApiCache();
+    fetchAktivitasDriverData(true);
+  }).catch(function (err) {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = ICONS.check + '<span>Selesai & Check-In Kantor</span>';
+    }
+    showToast(err.message, 'error');
+  });
+}
+
+// ============================================================================
+// LAPORAN & MONITORING AKTIVITAS DRIVER (BACK OFFICE & DRIVER)
+// ============================================================================
+
+function fetchLaporanAktivitasData(forceRefresh, fetchOpts) {
+  if (!STATE.session || !STATE.session.user) {
+    return Promise.resolve();
+  }
+  var f = STATE.laporanAktivitas.filters;
+  var page = STATE.laporanAktivitas.page;
+  var limit = STATE.laporanAktivitas.limit;
+  var cacheKey = 'laporan_aktivitas_' + page + '_' + JSON.stringify(f);
+  var isSilent = Boolean(fetchOpts && fetchOpts.silent);
+
+  return callGasApi('listLaporanAktivitas', {
+    dateFrom: f.dateFrom,
+    dateTo: f.dateTo,
+    driverId: f.driverId,
+    platMobil: f.platMobil,
+    status: f.status,
+    search: f.search,
+    page: page,
+    limit: limit
+  }, {
+    cacheKey: cacheKey,
+    forceRefresh: Boolean(forceRefresh)
+  }).then(function (data) {
+    var res = data || { items: [], total: 0, page: 1, limit: 15, totalPages: 1, summary: {} };
+    var snap = JSON.stringify(res);
+    var changed = STATE.lastSnapshots[cacheKey] !== snap;
+    STATE.lastSnapshots[cacheKey] = snap;
+
+    STATE.laporanAktivitas.items = res.items || [];
+    STATE.laporanAktivitas.total = Number(res.total) || 0;
+    STATE.laporanAktivitas.page = Number(res.page) || 1;
+    STATE.laporanAktivitas.limit = Number(res.limit) || 15;
+    STATE.laporanAktivitas.totalPages = Number(res.totalPages) || 1;
+    STATE.laporanAktivitas.summary = res.summary || { total: 0, selesai: 0, sedangBerangkat: 0, totalKm: 0, totalBiayaBbm: 0, totalLiterBbm: 0 };
+
+    if (STATE.currentPage === 'laporan-aktivitas' && (!isSilent || (changed && !isUiBusyForBackgroundSync()))) {
+      renderApp();
+    }
+  }).catch(function (err) {
+    if (!isSilent) {
+      showToast('Gagal memuat laporan aktivitas: ' + err.message, 'error');
+    }
+  });
+}
+
+function applyLaporanAktivitasFilter() {
+  STATE.laporanAktivitas.filters.dateFrom = document.getElementById('akt-rep-from').value;
+  STATE.laporanAktivitas.filters.dateTo = document.getElementById('akt-rep-to').value;
+  STATE.laporanAktivitas.filters.driverId = document.getElementById('akt-rep-driver').value;
+  STATE.laporanAktivitas.filters.platMobil = document.getElementById('akt-rep-mobil').value;
+  STATE.laporanAktivitas.filters.status = document.getElementById('akt-rep-status').value;
+  STATE.laporanAktivitas.filters.search = document.getElementById('akt-rep-search').value.trim();
+  STATE.laporanAktivitas.page = 1;
+  fetchLaporanAktivitasData(false);
+}
+
+function changeLaporanAktivitasPage(p) {
+  STATE.laporanAktivitas.page = p;
+  fetchLaporanAktivitasData(false);
+}
+
+function triggerExportAktivitas(formatType) {
+  var f = STATE.laporanAktivitas.filters;
+  showToast('Menyiapkan seluruh data laporan aktivitas untuk export ' + formatType.toUpperCase() + '...', 'info');
+
+  callGasApi('listLaporanAktivitas', {
+    dateFrom: f.dateFrom,
+    dateTo: f.dateTo,
+    driverId: f.driverId,
+    platMobil: f.platMobil,
+    status: f.status,
+    search: f.search,
+    exportAll: true
+  }).then(function (data) {
+    if (formatType === 'pdf') {
+      exportAktivitasToPdf(data.items || [], data.summary || {}, f);
+    } else {
+      exportAktivitasToExcel(data.items || [], data.summary || {}, f);
+    }
+  }).catch(function (err) {
+    showToast(err.message, 'error');
+  });
+}
+
+function renderLaporanAktivitasView() {
+  var f = STATE.laporanAktivitas.filters;
+  var s = STATE.laporanAktivitas.summary || {};
+  var user = STATE.session.user;
+  var isDriver = user.divisi === 'Driver';
+
+  var drivers = (STATE.dropdowns && STATE.dropdowns.drivers) || [];
+  var mobils = (STATE.dropdowns && STATE.dropdowns.mobils) || [];
+
+  // Dropdown Driver Options
+  var drvOpts = '<option value="">Semua Driver</option>';
+  if (isDriver) {
+    drvOpts = '<option value="' + escapeHtml(user.idKaryawan) + '" selected>' + escapeHtml(user.namaKaryawan) + '</option>';
+  } else {
+    for (var d = 0; d < drivers.length; d++) {
+      var drv = drivers[d];
+      drvOpts += '<option value="' + escapeHtml(drv.idKaryawan) + '" ' + (f.driverId === drv.idKaryawan ? 'selected' : '') + '>' + escapeHtml(drv.namaKaryawan) + '</option>';
+    }
+  }
+
+  // Dropdown Mobil Options
+  var mblOpts = '<option value="">Semua Plat Kendaraan</option>';
+  for (var m = 0; m < mobils.length; m++) {
+    var mob = mobils[m];
+    var mVal = mob.platMobil;
+    mblOpts += '<option value="' + escapeHtml(mVal) + '" ' + (f.platMobil === mVal ? 'selected' : '') + '>' + escapeHtml(mVal) + (mob.jenisMobil ? ' (' + escapeHtml(mob.jenisMobil) + ')' : '') + '</option>';
+  }
+
+  // Status Options
+  var statuses = ['', 'Sedang Berangkat', 'Selesai'];
+  var stOpts = '';
+  for (var st = 0; st < statuses.length; st++) {
+    var sv = statuses[st];
+    stOpts += '<option value="' + escapeHtml(sv) + '" ' + (f.status === sv ? 'selected' : '') + '>' + (sv || 'Semua Status') + '</option>';
+  }
+
+  var items = STATE.laporanAktivitas.items || [];
+  var rowsHtml = '';
+
+  if (!items.length) {
+    rowsHtml = '<tr><td colspan="7" class="empty-state">Tidak ada data aktivitas driver sesuai filter.</td></tr>';
+  } else {
+    for (var i = 0; i < items.length; i++) {
+      var r = items[i];
+      var isSelesai = r.status === 'Selesai';
+      var statusBadge = isSelesai
+        ? '<span class="badge" style="background:#ecfdf5;color:#047857;border:1px solid #a7f3d0">Selesai</span>'
+        : '<span class="badge" style="background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe">Sedang Berangkat</span>';
+
+      var kmInfo =
+        '<div style="font-family:ui-monospace,monospace;font-size:12px">' +
+          '<div>Awal: <strong>' + formatNumberID(r.kmAwal) + '</strong> KM</div>' +
+          '<div>Akhir: ' + (r.kmAkhir !== null ? '<strong>' + formatNumberID(r.kmAkhir) + '</strong> KM' : '-') + '</div>' +
+          (isSelesai ? '<div style="color:var(--emerald);font-weight:700">Total: ' + formatNumberID(r.totalKm) + ' KM</div>' : '') +
+        '</div>';
+
+      var bbmInfo =
+        '<div>' +
+          '<div class="cell-strong">Rp ' + formatNumberID(r.totalBiayaBbm || 0) + '</div>' +
+          '<div class="cell-sub">' + (r.totalLiterBbm || 0) + ' Liter</div>' +
+        '</div>';
+
+      var waktuInfo =
+        '<div class="cell-sub">' +
+          '<div>Brgkt: ' + (r.waktuBerangkat ? formatDateTimeID(r.waktuBerangkat) : '-') + '</div>' +
+          '<div>Masuk: ' + (r.waktuCheckIn ? formatDateTimeID(r.waktuCheckIn) : '-') + '</div>' +
+        '</div>';
+
+      rowsHtml +=
+        '<tr>' +
+          '<td><div class="cell-strong">' + escapeHtml(r.idAktivitas) + '</div><div class="cell-sub">' + formatDateID(r.tanggal) + '</div></td>' +
+          '<td><div class="cell-strong">' + escapeHtml(r.namaDriver) + '</div><div class="cell-sub"><span class="vehicle-tag">' + escapeHtml(r.platMobil) + '</span> ' + escapeHtml(r.jenisMobil || '') + '</div></td>' +
+          '<td>' + statusBadge + '</td>' +
+          '<td>' + kmInfo + '</td>' +
+          '<td>' + bbmInfo + '</td>' +
+          '<td>' + waktuInfo + '</td>' +
+          '<td><button type="button" class="btn btn-secondary btn-sm" onclick="openAktivitasDetailModal(\'' + escapeHtml(r.idAktivitas) + '\')">' + ICONS.eye + '<span>Detail</span></button></td>' +
+        '</tr>';
+    }
+  }
+
+  return (
+    '<div class="page-header">' +
+      '<div>' +
+        '<h2 class="page-title">Laporan Aktivitas Driver & Kendaraan</h2>' +
+        '<p class="page-subtitle">Monitoring harian kilometer tempuh, riwayat keberangkatan armada, dan pembukuan pengeluaran BBM</p>' +
+      '</div>' +
+      '<div class="header-actions">' +
+        renderSyncStatusBadge() +
+        '<button type="button" class="btn btn-outline-danger" onclick="triggerExportAktivitas(\'pdf\')">' + ICONS.download + '<span>Export PDF</span></button>' +
+        '<button type="button" class="btn btn-emerald" onclick="triggerExportAktivitas(\'excel\')">' + ICONS.download + '<span>Export Excel</span></button>' +
+      '</div>' +
+    '</div>' +
+    '<div class="metrics-grid">' +
+      renderMetricCard('Total Perjalanan', s.total || 0, '#eff6ff', '#1d4ed8', ICONS.truck) +
+      renderMetricCard('Selesai / Jalan', (s.selesai || 0) + ' / ' + (s.sedangBerangkat || 0), '#ecfdf5', '#047857', ICONS.check) +
+      renderMetricCard('Total KM Tempuh', formatNumberID(s.totalKm || 0) + ' KM', '#f1f5f9', '#0f172a', ICONS.mapPin) +
+      renderMetricCard('Total Pengeluaran BBM', 'Rp ' + formatNumberID(s.totalBiayaBbm || 0), '#fffbeb', '#b45309', ICONS.fuel) +
+    '</div>' +
+    '<div class="card" style="margin-bottom:14px">' +
+      '<div class="filter-bar" style="margin-bottom:0">' +
+        '<div class="form-group"><label class="form-label">Dari Tanggal</label><input id="akt-rep-from" class="form-control" type="date" value="' + escapeHtml(f.dateFrom) + '" /></div>' +
+        '<div class="form-group"><label class="form-label">Sampai Tanggal</label><input id="akt-rep-to" class="form-control" type="date" value="' + escapeHtml(f.dateTo) + '" /></div>' +
+        '<div class="form-group"><label class="form-label">Driver</label><select id="akt-rep-driver" class="form-control" ' + (isDriver ? 'disabled' : '') + '>' + drvOpts + '</select></div>' +
+        '<div class="form-group"><label class="form-label">Armada Mobil</label><select id="akt-rep-mobil" class="form-control">' + mblOpts + '</select></div>' +
+        '<div class="form-group"><label class="form-label">Status</label><select id="akt-rep-status" class="form-control">' + stOpts + '</select></div>' +
+        '<div class="form-group"><label class="form-label">Cari Teks</label><input id="akt-rep-search" class="form-control" type="text" value="' + escapeHtml(f.search) + '" placeholder="ID / Plat / Driver..." onkeydown="if(event.key===\'Enter\'){event.preventDefault();applyLaporanAktivitasFilter();}" /></div>' +
+        '<div class="form-group"><button type="button" class="btn btn-navy" style="width:100%" onclick="applyLaporanAktivitasFilter()">Tampilkan</button></div>' +
+      '</div>' +
+    '</div>' +
+    '<div class="table-card">' +
+      '<div class="table-wrap"><table class="data-table"><thead><tr><th>ID / Tgl</th><th>Driver & Kendaraan</th><th>Status</th><th>Kilometer (Awal/Akhir/Total)</th><th>Pengeluaran BBM</th><th>Waktu Operasional</th><th>Aksi</th></tr></thead><tbody>' + rowsHtml + '</tbody></table></div>' +
+      renderPaginationBar(STATE.laporanAktivitas.page, STATE.laporanAktivitas.totalPages, STATE.laporanAktivitas.total, 'changeLaporanAktivitasPage') +
+    '</div>'
+  );
+}
+
+// ----------------------------------------------------------------------------
+// MODAL DETAIL AKTIVITAS (TIMELINE, GALERI FOTO & LOG BBM)
+// ----------------------------------------------------------------------------
+
+function openAktivitasDetailModal(idAktivitas) {
+  openModal(
+    '<div class="modal-header"><h3 class="modal-title">Memuat Detail Aktivitas...</h3><button type="button" class="modal-close" onclick="closeModal()">' + ICONS.x + '</button></div>' +
+    '<div class="modal-body" style="text-align:center;padding:40px"><span class="spinner dark"></span><p>Mengambil data lengkap perjalanan & BBM...</p></div>',
+    true
+  );
+
+  callGasApi('getAktivitasDetail', { idAktivitas: idAktivitas }).then(function (data) {
+    var act = data.aktivitas;
+    var bbmList = data.bbmList || [];
+    if (!act) {
+      showToast('Data aktivitas tidak ditemukan.', 'error');
+      closeModal();
+      return;
+    }
+
+    var mapsBerangkat = (act.gpsBerangkatLat && act.gpsBerangkatLng)
+      ? buildGoogleMapsUrl(act.gpsBerangkatLat, act.gpsBerangkatLng)
+      : '';
+    var mapsCheckIn = (act.gpsCheckInLat && act.gpsCheckInLng)
+      ? buildGoogleMapsUrl(act.gpsCheckInLat, act.gpsCheckInLng)
+      : '';
+
+    var fotoAwalHtml = act.fotoKmAwal
+      ? '<a href="' + escapeHtml(act.fotoKmAwal) + '" target="_blank" rel="noopener"><img src="' + escapeHtml(act.fotoKmAwal) + '" alt="KM Awal" style="width:100%;max-height:160px;object-fit:cover;border-radius:var(--radius-sm);border:1px solid var(--border-color)" /></a>'
+      : '<div class="empty-state" style="padding:20px">Tidak ada foto KM Awal</div>';
+
+    var fotoAkhirHtml = act.fotoKmAkhir
+      ? '<a href="' + escapeHtml(act.fotoKmAkhir) + '" target="_blank" rel="noopener"><img src="' + escapeHtml(act.fotoKmAkhir) + '" alt="KM Akhir" style="width:100%;max-height:160px;object-fit:cover;border-radius:var(--radius-sm);border:1px solid var(--border-color)" /></a>'
+      : '<div class="empty-state" style="padding:20px">Belum ada foto KM Akhir (Belum Check-In)</div>';
+
+    var bbmRows = '';
+    if (!bbmList.length) {
+      bbmRows = '<tr><td colspan="6" class="empty-state">Tidak ada transaksi pengisian BBM pada sesi ini.</td></tr>';
+    } else {
+      for (var b = 0; b < bbmList.length; b++) {
+        var bm = bbmList[b];
+        var bmGps = (bm.gpsLat && bm.gpsLng) ? buildGoogleMapsUrl(bm.gpsLat, bm.gpsLng) : '';
+        bbmRows +=
+          '<tr>' +
+            '<td>' + formatDateTimeID(bm.waktuBbm) + '</td>' +
+            '<td><span class="odometer-badge" style="font-size:11px;padding:2px 6px">' + formatNumberID(bm.kmBbm) + ' KM</span></td>' +
+            '<td>' + escapeHtml(bm.jenisBbm || 'BBM') + '</td>' +
+            '<td>' + (bm.literBbm || 0) + ' L</td>' +
+            '<td><strong>Rp ' + formatNumberID(bm.biayaBbm) + '</strong></td>' +
+            '<td>' +
+              (bm.fotoBbm ? '<a class="btn btn-secondary btn-sm" target="_blank" rel="noopener" href="' + escapeHtml(bm.fotoBbm) + '">' + ICONS.eye + '<span>Foto</span></a> ' : '') +
+              (bmGps ? '<a class="btn btn-secondary btn-sm" target="_blank" rel="noopener" href="' + escapeHtml(bmGps) + '">' + ICONS.mapPin + '<span>GPS</span></a>' : '') +
+            '</td>' +
+          '</tr>';
+      }
+    }
+
+    var body =
+      '<div class="modal-header">' +
+        '<h3 class="modal-title">Detail Aktivitas Armada: ' + escapeHtml(act.idAktivitas) + '</h3>' +
+        '<button type="button" class="modal-close" onclick="closeModal()">' + ICONS.x + '</button>' +
+      '</div>' +
+      '<div class="modal-body">' +
+        '<div class="grid-2-col" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;margin-bottom:20px">' +
+          '<div class="card" style="margin:0;padding:16px">' +
+            '<h4 style="margin:0 0 10px 0;font-size:14px;color:var(--text-muted)">INFORMASI PERJALANAN</h4>' +
+            '<table style="width:100%;font-size:13px;line-height:1.8">' +
+              '<tr><td style="color:var(--text-muted);width:110px">Driver:</td><td><strong>' + escapeHtml(act.namaDriver) + '</strong> (' + escapeHtml(act.idDriver) + ')</td></tr>' +
+              '<tr><td style="color:var(--text-muted)">Kendaraan:</td><td><span class="vehicle-tag">' + escapeHtml(act.platMobil) + '</span> ' + escapeHtml(act.jenisMobil || '') + '</td></tr>' +
+              '<tr><td style="color:var(--text-muted)">Status:</td><td>' + (act.status === 'Selesai' ? '<span class="badge" style="background:#ecfdf5;color:#047857">Selesai</span>' : '<span class="badge" style="background:#eff6ff;color:#1d4ed8">Sedang Berangkat</span>') + '</td></tr>' +
+              '<tr><td style="color:var(--text-muted)">Tanggal:</td><td>' + formatDateID(act.tanggal) + '</td></tr>' +
+              '<tr><td style="color:var(--text-muted)">Waktu Brgkt:</td><td>' + (act.waktuBerangkat ? formatDateTimeID(act.waktuBerangkat) : '-') + '</td></tr>' +
+              '<tr><td style="color:var(--text-muted)">Waktu Selesai:</td><td>' + (act.waktuCheckIn ? formatDateTimeID(act.waktuCheckIn) : '-') + '</td></tr>' +
+            '</table>' +
+          '</div>' +
+          '<div class="card" style="margin:0;padding:16px">' +
+            '<h4 style="margin:0 0 10px 0;font-size:14px;color:var(--text-muted)">RINGKASAN ODOMETER & BIAYA</h4>' +
+            '<table style="width:100%;font-size:13px;line-height:1.8">' +
+              '<tr><td style="color:var(--text-muted);width:130px">KM Awal Berangkat:</td><td><span class="odometer-badge">' + formatNumberID(act.kmAwal) + ' KM</span></td></tr>' +
+              '<tr><td style="color:var(--text-muted)">KM Akhir Check-In:</td><td>' + (act.kmAkhir !== null ? '<span class="odometer-badge">' + formatNumberID(act.kmAkhir) + ' KM</span>' : '-') + '</td></tr>' +
+              '<tr><td style="color:var(--text-muted)">Total Jarak Tempuh:</td><td><strong style="color:var(--emerald);font-size:15px">' + formatNumberID(act.totalKm) + ' KM</strong></td></tr>' +
+              '<tr><td style="color:var(--text-muted)">Total Pengeluaran BBM:</td><td><strong>Rp ' + formatNumberID(act.totalBiayaBbm || 0) + '</strong></td></tr>' +
+              '<tr><td style="color:var(--text-muted)">Total Volume BBM:</td><td>' + (act.totalLiterBbm || 0) + ' Liter</td></tr>' +
+              (act.catatanBerangkat ? '<tr><td style="color:var(--text-muted)">Catatan Brgkt:</td><td>' + escapeHtml(act.catatanBerangkat) + '</td></tr>' : '') +
+              (act.catatanCheckIn ? '<tr><td style="color:var(--text-muted)">Catatan CheckIn:</td><td>' + escapeHtml(act.catatanCheckIn) + '</td></tr>' : '') +
+            '</table>' +
+          '</div>' +
+        '</div>' +
+        '<div style="margin-bottom:20px">' +
+          '<h4 style="margin:0 0 10px 0;font-size:14px;font-weight:700">FOTO BUKTI SPEEDOMETER & GPS</h4>' +
+          '<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">' +
+            '<div class="card" style="margin:0;padding:12px">' +
+              '<div style="font-weight:700;margin-bottom:6px;font-size:12px">FOTO KM AWAL' + (mapsBerangkat ? ' · <a target="_blank" rel="noopener" href="' + escapeHtml(mapsBerangkat) + '">Peta GPS Berangkat</a>' : '') + '</div>' +
+              fotoAwalHtml +
+            '</div>' +
+            '<div class="card" style="margin:0;padding:12px">' +
+              '<div style="font-weight:700;margin-bottom:6px;font-size:12px">FOTO KM AKHIR' + (mapsCheckIn ? ' · <a target="_blank" rel="noopener" href="' + escapeHtml(mapsCheckIn) + '">Peta GPS Check-In</a>' : '') + '</div>' +
+              fotoAkhirHtml +
+            '</div>' +
+          '</div>' +
+        '</div>' +
+        '<div>' +
+          '<h4 style="margin:0 0 10px 0;font-size:14px;font-weight:700">LOG PENGISIAN BBM PADA PERJALANAN INI (' + bbmList.length + ' PENGISIAN)</h4>' +
+          '<div class="table-wrap"><table class="data-table"><thead><tr><th>Waktu</th><th>KM Odometer</th><th>Jenis BBM</th><th>Liter</th><th>Biaya (Rp)</th><th>Bukti & GPS</th></tr></thead><tbody>' + bbmRows + '</tbody></table></div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="modal-footer">' +
+        '<button type="button" class="btn btn-secondary" onclick="closeModal()">Tutup</button>' +
+      '</div>';
+
+    openModal(body, true);
+  }).catch(function (err) {
+    showToast('Gagal memuat detail aktivitas: ' + err.message, 'error');
+    closeModal();
+  });
 }
 
 // ============================================================================
