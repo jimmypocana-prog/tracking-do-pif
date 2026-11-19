@@ -81,7 +81,7 @@ var STATE = {
     limit: 15,
     totalPages: 1,
     summary: { total: 0, siapPickUp: 0, dalamProses: 0, selesai: 0, gagalKirim: 0, redeliveryCount: 0 },
-    filters: { dateFrom: '', dateTo: '', driverId: '', customerId: '', status: '', search: '' }
+    filters: { dateFrom: '', dateTo: '', driverId: '', customerId: '', status: '', via: '', search: '' }
   },
 
   aktivitas: {
@@ -1018,19 +1018,29 @@ function renderMonitorView() {
   } else {
     for (var i = 0; i < items.length; i++) {
       var d = items[i];
+      var pkpMaps = buildGoogleMapsUrl(d.pickUpLat, d.pickUpLng);
+      var pkpMaps = buildGoogleMapsUrl(d.pickUpLat, d.pickUpLng);
       var ciMaps = buildGoogleMapsUrl(d.checkInLat, d.checkInLng);
       var coMaps = buildGoogleMapsUrl(d.checkOutLat, d.checkOutLng);
       var failMaps = buildGoogleMapsUrl(d.gagalKirimLat, d.gagalKirimLng);
 
       var gpsLinks = '';
-      if (ciMaps) {
-        gpsLinks += '<div><a target="_blank" rel="noopener" href="' + escapeHtml(ciMaps) + '">Peta Check-In</a></div>';
+      if (pkpMaps) {
+        var pkpCoord = (d.pickUpLat !== null && d.pickUpLat !== undefined && d.pickUpLat !== '') ? ' (' + Number(d.pickUpLat).toFixed(4) + ', ' + Number(d.pickUpLng).toFixed(4) + ')' : '';
+        gpsLinks += '<div><a target="_blank" rel="noopener" href="' + escapeHtml(pkpMaps) + '">📍 Pick Up' + escapeHtml(pkpCoord) + '</a></div>';
       }
-      if (coMaps) {
-        gpsLinks += '<div><a target="_blank" rel="noopener" href="' + escapeHtml(coMaps) + '">Peta Check-Out</a></div>';
+      if (ciMaps) {
+        var ciCoord = (d.checkInLat !== null && d.checkInLat !== undefined && d.checkInLat !== '') ? ' (' + Number(d.checkInLat).toFixed(4) + ', ' + Number(d.checkInLng).toFixed(4) + ')' : '';
+        var ciLabel = (d.via === 'Kurir' || d.via === 'Online') ? '📍 Selesai' : '📍 Check-In';
+        gpsLinks += '<div><a target="_blank" rel="noopener" href="' + escapeHtml(ciMaps) + '">' + ciLabel + escapeHtml(ciCoord) + '</a></div>';
+      }
+      if (coMaps && coMaps !== ciMaps) {
+        var coCoord = (d.checkOutLat !== null && d.checkOutLat !== undefined && d.checkOutLat !== '') ? ' (' + Number(d.checkOutLat).toFixed(4) + ', ' + Number(d.checkOutLng).toFixed(4) + ')' : '';
+        gpsLinks += '<div><a target="_blank" rel="noopener" href="' + escapeHtml(coMaps) + '">📍 Check-Out' + escapeHtml(coCoord) + '</a></div>';
       }
       if (failMaps) {
-        gpsLinks += '<div><a style="color:var(--rose)" target="_blank" rel="noopener" href="' + escapeHtml(failMaps) + '">Peta Gagal Kirim</a></div>';
+        var failCoord = (d.gagalKirimLat !== null && d.gagalKirimLat !== undefined && d.gagalKirimLat !== '') ? ' (' + Number(d.gagalKirimLat).toFixed(4) + ', ' + Number(d.gagalKirimLng).toFixed(4) + ')' : '';
+        gpsLinks += '<div><a style="color:var(--rose)" target="_blank" rel="noopener" href="' + escapeHtml(failMaps) + '">⚠️ Gagal Kirim' + escapeHtml(failCoord) + '</a></div>';
       }
       if (!gpsLinks) {
         gpsLinks = '<span class="cell-sub">Belum ada GPS</span>';
@@ -1120,24 +1130,22 @@ function renderOrderPersonnelOptionsHtml(selectedVia, currentDriverId) {
   var filtered = [];
   for (var i = 0; i < drivers.length; i++) {
     var d = drivers[i];
-    var dVia = d.via || (d.divisi === 'Driver' ? 'Driver' : '');
-    if (selectedVia === 'Kurir') {
-      if (dVia === 'Kurir') filtered.push(d);
-    } else if (selectedVia === 'Online') {
-      if (dVia === 'Online') filtered.push(d);
+    if (selectedVia === 'Driver') {
+      if (d.divisi === 'Driver') filtered.push(d);
     } else {
-      if (dVia === 'Driver' || d.divisi === 'Driver') filtered.push(d);
+      // Kurir atau Online ditugaskan ke divisi Admin Delivery
+      if (d.divisi === 'Admin Delivery') filtered.push(d);
     }
   }
   var list = filtered.length ? filtered : drivers;
-  var placeholder = selectedVia === 'Kurir'
-    ? '-- Pilih Kurir / PIC Penyerahan --'
-    : (selectedVia === 'Online' ? '-- Pilih Petugas / Driver Online --' : '-- Pilih Driver --');
+  var placeholder = selectedVia === 'Driver'
+    ? '-- Pilih Driver --'
+    : '-- Pilih Petugas Admin Delivery --';
   var html = '<option value="">' + placeholder + '</option>';
   for (var j = 0; j < list.length; j++) {
     var selD = (currentDriverId && currentDriverId === list[j].idKaryawan) ? 'selected' : '';
     html += '<option value="' + escapeHtml(list[j].idKaryawan) + '" ' + selD + '>' +
-      escapeHtml(list[j].namaKaryawan) + (list[j].via ? ' (' + escapeHtml(list[j].via) + ')' : '') +
+      escapeHtml(list[j].namaKaryawan) + (list[j].divisi ? ' (' + escapeHtml(list[j].divisi) + ')' : '') +
       '</option>';
   }
   return html;
@@ -1150,10 +1158,8 @@ function handleOrderViaChange(selectedVia, keepDriverId) {
   var mobilSel = document.getElementById('ord-mobil');
 
   if (drvLabel) {
-    if (selectedVia === 'Kurir') {
-      drvLabel.innerHTML = 'Kurir / PIC Penyerahan <span class="req">*</span>';
-    } else if (selectedVia === 'Online') {
-      drvLabel.innerHTML = 'Petugas / Driver Online <span class="req">*</span>';
+    if (selectedVia === 'Kurir' || selectedVia === 'Online') {
+      drvLabel.innerHTML = 'Petugas Admin Delivery <span class="req">*</span>';
     } else {
       drvLabel.innerHTML = 'Driver Bertugas <span class="req">*</span>';
     }
@@ -1828,6 +1834,14 @@ function updateGpsBoxDom() {
   if (submitBtn) {
     submitBtn.disabled = !STATE.modalGps || STATE.modalGpsLoading;
   }
+  var btnPickup = document.getElementById('pickup-submit-btn');
+  if (btnPickup) {
+    btnPickup.disabled = !STATE.modalGps || STATE.modalGpsLoading;
+  }
+  var btnOnline = document.getElementById('online-complete-btn');
+  if (btnOnline) {
+    btnOnline.disabled = !STATE.modalGps || STATE.modalGpsLoading;
+  }
   var btnCheckout = document.getElementById('btn-submit-checkout-akt');
   if (btnCheckout) {
     btnCheckout.disabled = !STATE.modalGps || STATE.modalGpsLoading;
@@ -1861,6 +1875,9 @@ function openPickUpModal(idTrackings) {
   }
   STATE.modalPhotos = [];
   STATE.modalTargetIds = idTrackings.slice();
+  STATE.modalGps = null;
+  STATE.modalGpsLoading = true;
+  STATE.modalGpsError = '';
 
   var isAllKurir = false;
   if (idTrackings.length > 0) {
@@ -1904,6 +1921,10 @@ function openPickUpModal(idTrackings) {
     '<div class="modal-body">' +
       '<div><div class="form-label" style="margin-bottom:6px">Delivery Order:</div>' + buildSelectedDosSummaryHtml(idTrackings) + '</div>' +
       kurirNotice +
+      '<div class="form-group" style="margin-top:10px">' +
+        '<label class="form-label">Koordinat GPS Lokasi Pick Up <span class="req">*</span></label>' +
+        '<div id="gps-box-holder">' + renderGpsStatusBox() + '</div>' +
+      '</div>' +
       renderPhotoUploaderSection(photoLabel, false, false) +
     '</div>' +
     '<div class="modal-footer">' +
@@ -1912,10 +1933,15 @@ function openPickUpModal(idTrackings) {
     '</div>';
 
   openModal(html);
+  acquireModalGps();
 }
 
 function submitPickUp(isAllKurir) {
   var idTrackings = STATE.modalTargetIds || [];
+  if (!STATE.modalGps) {
+    showToast('Koordinat GPS wajib terdeteksi sebelum konfirmasi.', 'warning');
+    return;
+  }
   if (!STATE.modalPhotos.length) {
     showToast('Unggah minimal 1 foto terlebih dahulu.', 'warning');
     return;
@@ -1924,7 +1950,7 @@ function submitPickUp(isAllKurir) {
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner"></span><span>Mengunggah foto & menyimpan...</span>';
 
-  callGasApi('pickUpOrders', { idTrackings: idTrackings, photos: STATE.modalPhotos })
+  callGasApi('pickUpOrders', { idTrackings: idTrackings, photos: STATE.modalPhotos, gps: STATE.modalGps })
     .then(function () {
       STATE.tracking.selectedIds = {};
       clearApiCache('tracking_');
@@ -1965,6 +1991,9 @@ function openCompleteOnlineModal(idTracking) {
 
   STATE.modalPhotos = [];
   STATE.modalTargetIds = [idTracking];
+  STATE.modalGps = null;
+  STATE.modalGpsLoading = true;
+  STATE.modalGpsError = '';
 
   var html =
     '<div class="modal-header">' +
@@ -1975,6 +2004,10 @@ function openCompleteOnlineModal(idTracking) {
       '<div class="alert-box alert-info" style="margin-bottom:12px">' +
         'Pengiriman Via Online untuk <strong>' + escapeHtml(item.nomorDO) + '</strong> (' + escapeHtml(item.namaCustomer) + '). ' +
         'Upload foto bukti barang telah diterima customer (bisa ambil langsung dari kamera atau pilih dari galeri HP).' +
+      '</div>' +
+      '<div class="form-group">' +
+        '<label class="form-label">Koordinat GPS Lokasi Penerima <span class="req">*</span></label>' +
+        '<div id="gps-box-holder">' + renderGpsStatusBox() + '</div>' +
       '</div>' +
       '<div class="form-group">' +
         '<label class="form-label" for="online-penerima">Nama Penerima Barang (Opsional)</label>' +
@@ -1992,9 +2025,14 @@ function openCompleteOnlineModal(idTracking) {
     '</div>';
 
   openModal(html);
+  acquireModalGps();
 }
 
 function submitCompleteOnlineDelivery(idTracking) {
+  if (!STATE.modalGps) {
+    showToast('Koordinat GPS wajib terdeteksi sebelum menyelesaikan pengiriman.', 'warning');
+    return;
+  }
   if (!STATE.modalPhotos.length) {
     showToast('Wajib mengunggah minimal 1 foto bukti barang sudah diterima customer.', 'warning');
     return;
@@ -2009,6 +2047,7 @@ function submitCompleteOnlineDelivery(idTracking) {
   var payload = {
     idTracking: idTracking,
     photos: STATE.modalPhotos,
+    gps: STATE.modalGps,
     namaPenerima: document.getElementById('online-penerima') ? document.getElementById('online-penerima').value.trim() : '',
     keterangan: document.getElementById('online-keterangan') ? document.getElementById('online-keterangan').value.trim() : ''
   };
@@ -2296,6 +2335,7 @@ function openOrderDetailModal(idTracking) {
         ? renderReadonlyGallery('Foto Bukti Kendala Gagal Kirim (' + d.gagalKirimFotos.length + '/6)', d.gagalKirimFotos)
         : '';
 
+      var pkpMaps = buildGoogleMapsUrl(d.pickUpLat, d.pickUpLng);
       var ciMaps = buildGoogleMapsUrl(d.checkInLat, d.checkInLng);
       var coMaps = buildGoogleMapsUrl(d.checkOutLat, d.checkOutLng);
       var failMaps = buildGoogleMapsUrl(d.gagalKirimLat, d.gagalKirimLng);
@@ -2334,15 +2374,16 @@ function openOrderDetailModal(idTracking) {
               '<div class="cell-sub">Mobil: <strong>' + escapeHtml(d.platMobil || '-') + '</strong>' + (d.jenisMobil ? ' (' + escapeHtml(d.jenisMobil) + ')' : '') + '</div>' +
               '<div class="cell-sub">Diinput Back Office: ' + escapeHtml(d.namaBackOffice) + '</div>' +
               (d.driverWhatsApp ? '<div style="margin-top:6px"><a class="btn btn-outline-emerald btn-sm" target="_blank" rel="noopener" href="' + escapeHtml(buildWhatsAppUrl(d.driverWhatsApp, '')) + '">' + ICONS.phone + '<span>WhatsApp Driver</span></a></div>' : '') +
+              '<div class="cell-sub" style="margin-top:4px">Pengiriman VIA: <strong>' + escapeHtml(d.via || 'Driver') + '</strong></div>' +
             '</div>' +
           '</div>' +
           '<div class="card" style="padding:12px">' +
             '<div class="cell-strong" style="margin-bottom:8px">Ringkasan Tahap Lapangan</div>' +
             '<div class="form-grid-2">' +
-              '<div><div class="cell-sub">Pick Up Batch: <strong>' + escapeHtml(d.idPickUpBatch || '-') + '</strong></div><div class="cell-sub">Waktu: ' + formatDateTimeID(d.waktuPickUp) + '</div></div>' +
+              '<div><div class="cell-sub">Pick Up Batch: <strong>' + escapeHtml(d.idPickUpBatch || '-') + '</strong></div><div class="cell-sub">Waktu: ' + (d.waktuPickUp ? formatDateTimeID(d.waktuPickUp) : '-') + '</div>' + (pkpMaps ? '<div style="margin-top:2px"><a target="_blank" rel="noopener" href="' + escapeHtml(pkpMaps) + '">Lihat Lokasi GPS Pick Up (' + d.pickUpLat + ', ' + d.pickUpLng + ')</a></div>' : '') + '</div>' +
               '<div><div class="cell-sub">Penerima: <strong>' + escapeHtml(d.namaPenerima || '-') + '</strong></div><div class="cell-sub">Keterangan: ' + escapeHtml(d.keterangan || '-') + '</div></div>' +
-              '<div><div class="cell-sub">Check-In: ' + formatDateTimeID(d.waktuCheckIn) + '</div>' + (ciMaps ? '<a target="_blank" rel="noopener" href="' + escapeHtml(ciMaps) + '">Lihat Lokasi GPS Check-In (' + d.checkInLat + ', ' + d.checkInLng + ')</a>' : '') + '</div>' +
-              '<div><div class="cell-sub">Check-Out: ' + formatDateTimeID(d.waktuCheckOut) + ' (' + formatDuration(d.waktuCheckIn, d.waktuCheckOut) + ')</div>' + (coMaps ? '<a target="_blank" rel="noopener" href="' + escapeHtml(coMaps) + '">Lihat Lokasi GPS Check-Out (' + d.checkOutLat + ', ' + d.checkOutLng + ')</a>' : '') + '</div>' +
+              '<div><div class="cell-sub">' + ((d.via === 'Kurir' || d.via === 'Online') ? 'Selesai' : 'Check-In') + ': ' + (d.waktuCheckIn ? formatDateTimeID(d.waktuCheckIn) : '-') + '</div>' + (ciMaps ? '<div style="margin-top:2px"><a target="_blank" rel="noopener" href="' + escapeHtml(ciMaps) + '">Lihat Lokasi GPS ' + ((d.via === 'Kurir' || d.via === 'Online') ? 'Selesai' : 'Check-In') + ' (' + d.checkInLat + ', ' + d.checkInLng + ')</a></div>' : '') + '</div>' +
+              '<div><div class="cell-sub">Check-Out: ' + (d.waktuCheckOut ? formatDateTimeID(d.waktuCheckOut) : '-') + (d.waktuCheckIn && d.waktuCheckOut ? ' (' + formatDuration(d.waktuCheckIn, d.waktuCheckOut) + ')' : '') + '</div>' + (coMaps && coMaps !== ciMaps ? '<div style="margin-top:2px"><a target="_blank" rel="noopener" href="' + escapeHtml(coMaps) + '">Lihat Lokasi GPS Check-Out (' + d.checkOutLat + ', ' + d.checkOutLng + ')</a></div>' : '') + '</div>' +
             '</div>' +
             (d.status === 'Gagal Kirim'
               ? '<div class="alert-box alert-danger" style="margin-top:10px"><strong>Gagal Kirim (' + formatDateTimeID(d.waktuGagalKirim) + '):</strong> ' + escapeHtml(d.alasanGagalKirim) + (failMaps ? ' · <a target="_blank" rel="noopener" href="' + escapeHtml(failMaps) + '">Lihat GPS Gagal Kirim</a>' : '') + '</div>'
@@ -2453,16 +2494,13 @@ function renderKaryawanView() {
         : (k.divisi === 'Admin Delivery'
             ? '<span class="badge badge-primary">Admin Delivery</span>'
             : '<span class="badge badge-jalan">Driver</span>');
-      var badgeVia = k.via
-        ? '<span class="badge badge-via badge-via-' + k.via.toLowerCase() + '">' + escapeHtml(k.via) + '</span>'
-        : '';
       var badgeStatus = k.status === 'Aktif' ? '<span class="badge badge-selesai">Aktif</span>' : '<span class="badge badge-gagal">Nonaktif</span>';
 
       rowsHtml +=
         '<tr>' +
           '<td><div class="cell-strong">' + escapeHtml(k.idKaryawan) + '</div></td>' +
           '<td><div class="cell-strong">' + escapeHtml(k.namaKaryawan) + '</div><div class="cell-sub">@' + escapeHtml(k.username) + '</div></td>' +
-          '<td><div>' + badgeDivisi + '</div>' + (badgeVia ? '<div style="margin-top:4px">' + badgeVia + '</div>' : '') + '</td>' +
+          '<td>' + badgeDivisi + '</td>' +
           '<td>' + escapeHtml(k.noWhatsApp || '-') + '</td>' +
           '<td>' + badgeStatus + '</td>' +
           '<td><button type="button" class="btn btn-secondary btn-sm" onclick="openKaryawanModal(\'' + escapeHtml(k.idKaryawan) + '\')">' + ICONS.edit + '<span>Edit</span></button></td>' +
@@ -2493,7 +2531,7 @@ function renderKaryawanView() {
       '</div>' +
     '</div>' +
     '<div class="table-card">' +
-      '<div class="table-wrap"><table class="data-table"><thead><tr><th>ID Karyawan</th><th>Nama & Username</th><th>Divisi & Via</th><th>No. WhatsApp</th><th>Status</th><th>Aksi</th></tr></thead><tbody>' + rowsHtml + '</tbody></table></div>' +
+      '<div class="table-wrap"><table class="data-table"><thead><tr><th>ID Karyawan</th><th>Nama & Username</th><th>Divisi</th><th>No. WhatsApp</th><th>Status</th><th>Aksi</th></tr></thead><tbody>' + rowsHtml + '</tbody></table></div>' +
       renderPaginationBar(STATE.karyawan.page, STATE.karyawan.totalPages, STATE.karyawan.total, 'changeKaryawanPage') +
     '</div>'
   );
@@ -2511,7 +2549,6 @@ function openKaryawanModal(idKaryawan) {
   }
   var isEdit = Boolean(item);
   var curDivisi = item ? item.divisi : 'Driver';
-  var curVia = item ? (item.via || (curDivisi === 'Driver' ? 'Driver' : '')) : 'Driver';
 
   var html =
     '<div class="modal-header"><h3 class="modal-title">' + (isEdit ? 'Ubah Data Karyawan' : 'Tambah Karyawan Baru') + '</h3><button type="button" class="modal-close" onclick="closeModal()">' + ICONS.x + '</button></div>' +
@@ -2522,14 +2559,13 @@ function openKaryawanModal(idKaryawan) {
           '<div class="form-group"><label class="form-label">Divisi <span class="req">*</span></label><select id="kf-divisi" class="form-control" required><option value="Driver" ' + (curDivisi === 'Driver' ? 'selected' : '') + '>Driver</option><option value="Back Office" ' + (curDivisi === 'Back Office' ? 'selected' : '') + '>Back Office</option><option value="Admin Delivery" ' + (curDivisi === 'Admin Delivery' ? 'selected' : '') + '>Admin Delivery</option></select></div>' +
         '</div>' +
         '<div class="form-grid-2">' +
-          '<div class="form-group"><label class="form-label">Tugas Pengiriman VIA <span class="req">*</span></label><select id="kf-via" class="form-control" required><option value="Driver" ' + (curVia === 'Driver' ? 'selected' : '') + '>Driver</option><option value="Kurir" ' + (curVia === 'Kurir' ? 'selected' : '') + '>Kurir</option><option value="Online" ' + (curVia === 'Online' ? 'selected' : '') + '>Online</option></select></div>' +
           '<div class="form-group"><label class="form-label">No. WhatsApp</label><input id="kf-wa" class="form-control" type="text" value="' + escapeHtml(item ? item.noWhatsApp : '') + '" placeholder="0812xxxxxxxx" /></div>' +
+          '<div class="form-group"><label class="form-label">Status <span class="req">*</span></label><select id="kf-status" class="form-control"><option value="Aktif" ' + (!item || item.status === 'Aktif' ? 'selected' : '') + '>Aktif</option><option value="Nonaktif" ' + (item && item.status === 'Nonaktif' ? 'selected' : '') + '>Nonaktif</option></select></div>' +
         '</div>' +
         '<div class="form-grid-2">' +
-          '<div class="form-group"><label class="form-label">Status <span class="req">*</span></label><select id="kf-status" class="form-control"><option value="Aktif" ' + (!item || item.status === 'Aktif' ? 'selected' : '') + '>Aktif</option><option value="Nonaktif" ' + (item && item.status === 'Nonaktif' ? 'selected' : '') + '>Nonaktif</option></select></div>' +
           '<div class="form-group"><label class="form-label">Username Login <span class="req">*</span></label><input id="kf-user" class="form-control" type="text" value="' + escapeHtml(item ? item.username : '') + '" required /></div>' +
+          '<div class="form-group"><label class="form-label">Password ' + (isEdit ? '(Kosongkan jika tidak ubah)' : '<span class="req">*</span>') + '</label><input id="kf-pass" class="form-control" type="password" ' + (isEdit ? '' : 'required') + ' placeholder="Minimal 4 karakter" /></div>' +
         '</div>' +
-        '<div class="form-group"><label class="form-label">Password ' + (isEdit ? '(Kosongkan jika tidak ubah)' : '<span class="req">*</span>') + '</label><input id="kf-pass" class="form-control" type="password" ' + (isEdit ? '' : 'required') + ' placeholder="Minimal 4 karakter" /></div>' +
       '</div>' +
       '<div class="modal-footer">' +
         '<button type="button" class="btn btn-secondary" onclick="closeModal()">Batal</button>' +
@@ -2549,7 +2585,6 @@ function openKaryawanModal(idKaryawan) {
       idKaryawan: item ? item.idKaryawan : '',
       namaKaryawan: document.getElementById('kf-nama').value.trim(),
       divisi: document.getElementById('kf-divisi').value,
-      via: document.getElementById('kf-via').value,
       noWhatsApp: document.getElementById('kf-wa').value.trim(),
       status: document.getElementById('kf-status').value,
       username: document.getElementById('kf-user').value.trim(),
@@ -3141,6 +3176,7 @@ function fetchReportData(forceRefresh, fetchOpts) {
     driverId: f.driverId,
     customerId: f.customerId,
     status: f.status,
+    via: f.via,
     search: f.search,
     exportAll: false
   };
@@ -3186,6 +3222,7 @@ function applyReportFilter() {
   STATE.report.filters.driverId = document.getElementById('rep-driver').value;
   STATE.report.filters.customerId = document.getElementById('rep-customer').value;
   STATE.report.filters.status = document.getElementById('rep-status').value;
+  STATE.report.filters.via = document.getElementById('rep-via') ? document.getElementById('rep-via').value : '';
   STATE.report.filters.search = document.getElementById('rep-search').value.trim();
   STATE.report.page = 1;
   fetchReportData(false);
@@ -3205,6 +3242,7 @@ function triggerExportReport(formatType) {
     driverId: f.driverId,
     customerId: f.customerId,
     status: f.status,
+    via: f.via,
     search: f.search,
     exportAll: true
   }).then(function (data) {
@@ -3232,9 +3270,9 @@ function switchReportTab(tabName) {
 }
 
 function resetReportFilter() {
-  STATE.report.filters = { dateFrom: '', dateTo: '', driverId: '', customerId: '', status: '', search: '' };
+  STATE.report.filters = { dateFrom: '', dateTo: '', driverId: '', customerId: '', status: '', via: '', search: '' };
   STATE.report.page = 1;
-  fetchReportData(false);
+  fetchReportData(true);
 }
 
 function resetLaporanAktivitasFilter() {
@@ -3248,7 +3286,7 @@ function resetLaporanAktivitasFilter() {
     search: ''
   };
   STATE.laporanAktivitas.page = 1;
-  fetchLaporanAktivitasData(false);
+  fetchLaporanAktivitasData(true);
 }
 
 function renderReportView() {
@@ -3292,6 +3330,13 @@ function renderReportDeliveryOrderContent_() {
     stOpts += '<option value="' + escapeHtml(sv) + '" ' + (f.status === sv ? 'selected' : '') + '>' + (sv || 'Semua Status') + '</option>';
   }
 
+  var viaOptions = ['', 'Driver', 'Kurir', 'Online'];
+  var viaOpts = '';
+  for (var v = 0; v < viaOptions.length; v++) {
+    var vv = viaOptions[v];
+    viaOpts += '<option value="' + escapeHtml(vv) + '" ' + (f.via === vv ? 'selected' : '') + '>' + (vv ? 'Via ' + vv : 'Semua VIA') + '</option>';
+  }
+
   var items = STATE.report.items;
   var rowsHtml = '';
   if (!items.length) {
@@ -3302,11 +3347,12 @@ function renderReportDeliveryOrderContent_() {
       var repMobilText = r.platMobil
         ? escapeHtml(r.platMobil) + (r.jenisMobil ? ' (' + escapeHtml(r.jenisMobil) + ')' : '')
         : '-';
+      var repViaTag = r.via ? '<span class="badge badge-via badge-via-' + r.via.toLowerCase() + '">' + escapeHtml(r.via) + '</span>' : '';
       rowsHtml +=
         '<tr>' +
-          '<td><div class="cell-strong">' + escapeHtml(r.nomorDO) + '</div><div class="cell-sub">' + escapeHtml(r.idTracking) + ' · #' + (r.percobaanKe || 1) + '</div></td>' +
+          '<td><div class="cell-strong">' + escapeHtml(r.nomorDO) + ' ' + repViaTag + '</div><div class="cell-sub">' + escapeHtml(r.idTracking) + ' · #' + (r.percobaanKe || 1) + '</div></td>' +
           '<td>' + formatDateID(r.tanggalDO) + '</td>' +
-          '<td><div class="cell-strong">' + escapeHtml(r.namaCustomer) + '</div><div class="cell-sub">Driver: ' + escapeHtml(r.namaDriver) + '</div><div class="cell-sub">Mobil: ' + repMobilText + '</div></td>' +
+          '<td><div class="cell-strong">' + escapeHtml(r.namaCustomer) + '</div><div class="cell-sub">Petugas: ' + escapeHtml(r.namaDriver) + ' (' + escapeHtml(r.via || 'Driver') + ')</div><div class="cell-sub">Mobil: ' + repMobilText + '</div></td>' +
           '<td>' + getStatusBadgeHtml(r.status) + '</td>' +
           '<td><div class="cell-sub">PickUp: ' + (r.waktuPickUp ? formatDateTimeID(r.waktuPickUp) : '-') + '</div><div class="cell-sub">Check-In: ' + (r.waktuCheckIn ? formatDateTimeID(r.waktuCheckIn) : '-') + '</div><div class="cell-sub">Check-Out: ' + (r.waktuCheckOut ? formatDateTimeID(r.waktuCheckOut) : '-') + '</div></td>' +
           '<td><div class="cell-strong">' + escapeHtml(r.namaPenerima || '-') + '</div><div class="cell-sub">' + escapeHtml(r.status === 'Gagal Kirim' ? 'Gagal: ' + r.alasanGagalKirim : (r.keterangan || '-')) + '</div></td>' +
@@ -3338,6 +3384,7 @@ function renderReportDeliveryOrderContent_() {
         '<div class="form-group"><label class="form-label">Sampai Tanggal</label><input id="rep-to" class="form-control" type="date" value="' + escapeHtml(f.dateTo) + '" /></div>' +
         '<div class="form-group"><label class="form-label">Driver</label><select id="rep-driver" class="form-control">' + drvOpts + '</select></div>' +
         '<div class="form-group"><label class="form-label">Customer</label><select id="rep-customer" class="form-control">' + cstOpts + '</select></div>' +
+        '<div class="form-group"><label class="form-label">Pengiriman VIA</label><select id="rep-via" class="form-control">' + viaOpts + '</select></div>' +
         '<div class="form-group"><label class="form-label">Status</label><select id="rep-status" class="form-control">' + stOpts + '</select></div>' +
         '<div class="form-group"><label class="form-label">Cari Teks</label><input id="rep-search" class="form-control" type="text" value="' + escapeHtml(f.search) + '" placeholder="No DO / Plat / Penerima..." onkeydown="if(event.key===\'Enter\'){event.preventDefault();applyReportFilter();}" /></div>' +
         '<div class="form-group" style="display:flex;gap:6px">' +
@@ -4057,7 +4104,7 @@ function fetchLaporanAktivitasData(forceRefresh, fetchOpts) {
     STATE.laporanAktivitas.totalPages = Number(res.totalPages) || 1;
     STATE.laporanAktivitas.summary = res.summary || { total: 0, selesai: 0, sedangBerangkat: 0, totalKm: 0, totalBiayaBbm: 0, totalLiterBbm: 0 };
 
-    if (STATE.currentPage === 'laporan-aktivitas' && (!isSilent || (changed && !isUiBusyForBackgroundSync()))) {
+    if ((STATE.currentPage === 'report' || STATE.currentPage === 'laporan-aktivitas') && (!isSilent || (changed && !isUiBusyForBackgroundSync()))) {
       renderApp();
     }
   }).catch(function (err) {
@@ -4070,12 +4117,12 @@ function fetchLaporanAktivitasData(forceRefresh, fetchOpts) {
 function applyLaporanAktivitasFilter() {
   STATE.laporanAktivitas.filters.dateFrom = document.getElementById('akt-rep-from').value;
   STATE.laporanAktivitas.filters.dateTo = document.getElementById('akt-rep-to').value;
-  STATE.laporanAktivitas.filters.driverId = document.getElementById('akt-rep-driver').value;
+  STATE.laporanAktivitas.filters.driverId = document.getElementById('akt-rep-driver') ? document.getElementById('akt-rep-driver').value : '';
   STATE.laporanAktivitas.filters.platMobil = document.getElementById('akt-rep-mobil').value;
   STATE.laporanAktivitas.filters.status = document.getElementById('akt-rep-status').value;
   STATE.laporanAktivitas.filters.search = document.getElementById('akt-rep-search').value.trim();
   STATE.laporanAktivitas.page = 1;
-  fetchLaporanAktivitasData(false);
+  fetchLaporanAktivitasData(true);
 }
 
 function changeLaporanAktivitasPage(p) {
