@@ -1126,22 +1126,31 @@ function buildOrderMobilOptionsHtml(preSelectedMobilId) {
 }
 
 function renderOrderPersonnelOptionsHtml(selectedVia, currentDriverId) {
+  if (selectedVia === 'Online') {
+    var onlineVendors = ['Grab', 'Gojek', 'Lala Move'];
+    var htmlOnline = '<option value="">-- Pilih Ekspedisi Online --</option>';
+    for (var v = 0; v < onlineVendors.length; v++) {
+      var selV = (currentDriverId && currentDriverId.toLowerCase() === onlineVendors[v].toLowerCase()) ? 'selected' : '';
+      htmlOnline += '<option value="' + escapeHtml(onlineVendors[v]) + '" ' + selV + '>' + escapeHtml(onlineVendors[v]) + '</option>';
+    }
+    return htmlOnline;
+  }
+
+  if (selectedVia === 'Kurir') {
+    return '';
+  }
+
+  // selectedVia === 'Driver'
   var drivers = STATE.dropdowns.drivers || [];
   var filtered = [];
   for (var i = 0; i < drivers.length; i++) {
     var d = drivers[i];
-    if (selectedVia === 'Driver') {
-      if (d.divisi === 'Driver') filtered.push(d);
-    } else {
-      // Kurir atau Online ditugaskan ke divisi Admin Delivery
-      if (d.divisi === 'Admin Delivery') filtered.push(d);
+    if (d.divisi === 'Driver') {
+      filtered.push(d);
     }
   }
   var list = filtered.length ? filtered : drivers;
-  var placeholder = selectedVia === 'Driver'
-    ? '-- Pilih Driver --'
-    : '-- Pilih Petugas Admin Delivery --';
-  var html = '<option value="">' + placeholder + '</option>';
+  var html = '<option value="">-- Pilih Driver --</option>';
   for (var j = 0; j < list.length; j++) {
     var selD = (currentDriverId && currentDriverId === list[j].idKaryawan) ? 'selected' : '';
     html += '<option value="' + escapeHtml(list[j].idKaryawan) + '" ' + selD + '>' +
@@ -1152,32 +1161,42 @@ function renderOrderPersonnelOptionsHtml(selectedVia, currentDriverId) {
 }
 
 function handleOrderViaChange(selectedVia, keepDriverId) {
+  var drvGroup = document.getElementById('ord-driver-group');
   var drvSel = document.getElementById('ord-driver');
   var drvLabel = document.getElementById('ord-driver-label');
   var mobilLabel = document.getElementById('ord-mobil-label');
   var mobilSel = document.getElementById('ord-mobil');
 
-  if (drvLabel) {
-    if (selectedVia === 'Kurir' || selectedVia === 'Online') {
-      drvLabel.innerHTML = 'Petugas Admin Delivery <span class="req">*</span>';
-    } else {
-      drvLabel.innerHTML = 'Driver Bertugas <span class="req">*</span>';
+  if (selectedVia === 'Kurir') {
+    if (drvGroup) drvGroup.style.display = 'none';
+    if (drvSel) {
+      drvSel.required = false;
+      drvSel.innerHTML = '';
+      drvSel.value = 'KURIR';
     }
-  }
-
-  if (mobilLabel) {
-    if (selectedVia === 'Driver') {
-      mobilLabel.innerHTML = 'Plat Mobil <span class="req">*</span>';
-      if (mobilSel) mobilSel.required = true;
-    } else {
-      mobilLabel.innerHTML = 'Plat Mobil (Opsional)';
-      if (mobilSel) mobilSel.required = false;
+    if (mobilLabel) mobilLabel.innerHTML = 'Plat Mobil (Opsional)';
+    if (mobilSel) mobilSel.required = false;
+  } else if (selectedVia === 'Online') {
+    if (drvGroup) drvGroup.style.display = 'block';
+    if (drvLabel) drvLabel.innerHTML = 'Ekspedisi Online <span class="req">*</span>';
+    if (drvSel) {
+      drvSel.required = true;
+      var curOnline = keepDriverId !== undefined ? keepDriverId : drvSel.value;
+      drvSel.innerHTML = renderOrderPersonnelOptionsHtml('Online', curOnline);
     }
-  }
-
-  if (drvSel) {
-    var cur = keepDriverId !== undefined ? keepDriverId : drvSel.value;
-    drvSel.innerHTML = renderOrderPersonnelOptionsHtml(selectedVia, cur);
+    if (mobilLabel) mobilLabel.innerHTML = 'Plat Mobil (Opsional)';
+    if (mobilSel) mobilSel.required = false;
+  } else {
+    // Driver
+    if (drvGroup) drvGroup.style.display = 'block';
+    if (drvLabel) drvLabel.innerHTML = 'Driver Bertugas <span class="req">*</span>';
+    if (drvSel) {
+      drvSel.required = true;
+      var curDrv = keepDriverId !== undefined ? keepDriverId : drvSel.value;
+      drvSel.innerHTML = renderOrderPersonnelOptionsHtml('Driver', curDrv);
+    }
+    if (mobilLabel) mobilLabel.innerHTML = 'Plat Mobil <span class="req">*</span>';
+    if (mobilSel) mobilSel.required = true;
   }
 }
 
@@ -1260,9 +1279,9 @@ function openOrderFormModal(existingIdTracking, isRedelivery) {
             '<select id="ord-customer" class="form-control" required>' + custOpts + '</select>' +
           '</div>' +
         '</div>' +
-        '<div class="form-group">' +
-          '<label id="ord-driver-label" class="form-label" for="ord-driver">' + (curVia === 'Kurir' ? 'Kurir / PIC Penyerahan' : (curVia === 'Online' ? 'Petugas / Driver Online' : 'Driver Bertugas')) + ' <span class="req">*</span></label>' +
-          '<select id="ord-driver" class="form-control" required>' + drvOpts + '</select>' +
+        '<div id="ord-driver-group" class="form-group" style="display:' + (curVia === 'Kurir' ? 'none' : 'block') + '">' +
+          '<label id="ord-driver-label" class="form-label" for="ord-driver">' + (curVia === 'Online' ? 'Ekspedisi Online' : 'Driver Bertugas') + ' <span class="req">*</span></label>' +
+          '<select id="ord-driver" class="form-control" ' + (curVia === 'Kurir' ? '' : 'required') + '>' + drvOpts + '</select>' +
         '</div>' +
         '<div class="form-grid-2">' +
           '<div class="form-group">' +
@@ -1309,7 +1328,9 @@ function openOrderFormModal(existingIdTracking, isRedelivery) {
       var drvSel = document.getElementById('ord-driver');
       if (drvSel && !drvSel.value && STATE.dropdowns.drivers.length) {
         var viaV = document.getElementById('ord-via') ? document.getElementById('ord-via').value : 'Driver';
-        drvSel.innerHTML = renderOrderPersonnelOptionsHtml(viaV, curDriverId);
+        if (viaV === 'Driver') {
+          drvSel.innerHTML = renderOrderPersonnelOptionsHtml(viaV, curDriverId);
+        }
       }
     });
   }
@@ -1327,19 +1348,37 @@ function openOrderFormModal(existingIdTracking, isRedelivery) {
     ev.preventDefault();
     var btn = document.getElementById('ord-save-btn');
     var selectedVia = document.getElementById('ord-via') ? document.getElementById('ord-via').value : 'Driver';
+    var driverVal = '';
+
+    if (selectedVia === 'Driver') {
+      driverVal = document.getElementById('ord-driver').value;
+      if (!driverVal) {
+        showToast('Driver bertugas wajib dipilih.', 'warning');
+        return;
+      }
+      var mobilVal = document.getElementById('ord-mobil').value || '';
+      if (!mobilVal) {
+        showToast('Plat Mobil wajib dipilih dari Master Mobil untuk pengiriman via Driver.', 'warning');
+        return;
+      }
+    } else if (selectedVia === 'Online') {
+      driverVal = document.getElementById('ord-driver').value;
+      if (!driverVal) {
+        showToast('Pilih layanan ekspedisi online (Grab / Gojek / Lala Move).', 'warning');
+        return;
+      }
+    } else if (selectedVia === 'Kurir') {
+      driverVal = 'KURIR';
+    }
+
     var payload = {
       tanggalDO: document.getElementById('ord-tanggal').value,
       nomorDO: document.getElementById('ord-nomor').value.trim(),
       idCustomer: document.getElementById('ord-customer').value,
-      idDriver: document.getElementById('ord-driver').value,
+      idDriver: driverVal,
       idMobil: document.getElementById('ord-mobil').value || '',
       via: selectedVia
     };
-
-    if (payload.via === 'Driver' && !payload.idMobil) {
-      showToast('Plat Mobil wajib dipilih dari Master Mobil untuk pengiriman via Driver.', 'warning');
-      return;
-    }
 
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner"></span><span>Menyimpan...</span>';
