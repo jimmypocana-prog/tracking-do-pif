@@ -483,10 +483,16 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void ensureStartupLocationPermission() {
-        if (!hasLocationPermission()) {
+        boolean needLoc = !hasLocationPermission();
+        boolean needCam = ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED;
+        if (needLoc || needCam) {
             ActivityCompat.requestPermissions(
                     this,
-                    new String[]{Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION},
+                    new String[]{
+                            Manifest.permission.ACCESS_FINE_LOCATION,
+                            Manifest.permission.ACCESS_COARSE_LOCATION,
+                            Manifest.permission.CAMERA
+                    },
                     REQ_LOCATION_STARTUP
             );
         } else {
