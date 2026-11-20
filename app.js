@@ -444,6 +444,7 @@ function loadActivePageData(forceRefresh, fetchOpts) {
   } else if (p === 'orders' || p === 'monitor') {
     ensureDropdownsLoaded(forceRefresh, opts).then(function () {
       fetchOrdersData(forceRefresh, opts);
+      refreshViaFilterDropdownInDom_();
     });
   } else if (p === 'tracking-driver') {
     fetchDriverTrackingData(forceRefresh, opts);
@@ -464,6 +465,7 @@ function loadActivePageData(forceRefresh, fetchOpts) {
       } else {
         fetchLaporanAktivitasData(forceRefresh, opts);
       }
+      refreshViaFilterDropdownInDom_();
     });
   } else if (p === 'aktivitas-driver') {
     ensureDropdownsLoaded(forceRefresh, opts).then(function () {
@@ -492,22 +494,28 @@ function ensureDropdownsLoaded(forceRefresh, fetchOpts) {
     var changed = STATE.lastSnapshots.dropdowns !== snap;
     STATE.dropdowns = normalized;
     STATE.lastSnapshots.dropdowns = snap;
+    refreshViaFilterDropdownInDom_();
+
     if (servedFromCache && !(fetchOpts && fetchOpts.silent)) {
       callGasApi('getMasterDropdowns', {}, {
         cacheKey: 'dropdowns',
         forceRefresh: true
       }).then(function (fresh) {
-        var normFresh = fresh || { drivers: [], customers: [], mobils: [], bbms: [] };
+        var normFresh = fresh || { drivers: [], customers: [], mobils: [], bbms: [], vias: [] };
         if (!normFresh.mobils) {
           normFresh.mobils = [];
         }
         if (!normFresh.bbms) {
           normFresh.bbms = [];
         }
+        if (!normFresh.vias) {
+          normFresh.vias = [];
+        }
         var freshSnap = JSON.stringify(normFresh);
         if (STATE.lastSnapshots.dropdowns !== freshSnap) {
           STATE.dropdowns = normFresh;
           STATE.lastSnapshots.dropdowns = freshSnap;
+          refreshViaFilterDropdownInDom_();
           if (!isUiBusyForBackgroundSync() && (STATE.currentPage === 'orders' || STATE.currentPage === 'monitor' || STATE.currentPage === 'report' || STATE.currentPage === 'aktivitas-driver' || STATE.currentPage === 'laporan-aktivitas')) {
             renderApp();
           }
@@ -520,7 +528,7 @@ function ensureDropdownsLoaded(forceRefresh, fetchOpts) {
     }
   }).catch(function () {
     if (!STATE.dropdowns) {
-      STATE.dropdowns = { drivers: [], customers: [], mobils: [] };
+      STATE.dropdowns = { drivers: [], customers: [], mobils: [], bbms: [], vias: [] };
     }
   });
 }
@@ -871,6 +879,44 @@ function fetchOrdersData(forceRefresh, fetchOpts) {
   });
 }
 
+function buildViaFilterOptionsHtml(selectedVia) {
+  var activeVias = (STATE.dropdowns && STATE.dropdowns.vias && STATE.dropdowns.vias.length)
+    ? STATE.dropdowns.vias
+    : [{ namaVia: 'Driver' }, { namaVia: 'Kurir' }, { namaVia: 'Online' }];
+
+  var html = '<option value="">Semua VIA</option>';
+  var matched = false;
+
+  for (var i = 0; i < activeVias.length; i++) {
+    var vName = activeVias[i].namaVia;
+    if (vName === selectedVia) {
+      matched = true;
+    }
+    html += '<option value="' + escapeHtml(vName) + '" ' + (selectedVia === vName ? 'selected' : '') + '>' + escapeHtml(vName) + '</option>';
+  }
+
+  if (!matched && selectedVia) {
+    html += '<option value="' + escapeHtml(selectedVia) + '" selected>' + escapeHtml(selectedVia) + '</option>';
+  }
+
+  return html;
+}
+
+function refreshViaFilterDropdownInDom_() {
+  var ordVia = document.getElementById('ord-filter-via');
+  if (ordVia) {
+    var curVal = STATE.orders.filters.via || ordVia.value;
+    ordVia.innerHTML = buildViaFilterOptionsHtml(curVal);
+    ordVia.value = curVal;
+  }
+  var repVia = document.getElementById('rep-via');
+  if (repVia) {
+    var curRepVal = STATE.report.filters.via || repVia.value;
+    repVia.innerHTML = buildViaFilterOptionsHtml(curRepVal);
+    repVia.value = curRepVal;
+  }
+}
+
 function renderOrdersFilterBar(isMonitor) {
   var f = STATE.orders.filters;
   var driverOpts = '<option value="">Semua Driver</option>';
@@ -886,11 +932,7 @@ function renderOrdersFilterBar(isMonitor) {
     statusOpts += '<option value="' + escapeHtml(val) + '" ' + (f.status === val ? 'selected' : '') + '>' + (val || 'Semua Status') + '</option>';
   }
 
-  var viaOpts =
-    '<option value="">Semua VIA</option>' +
-    '<option value="Driver" ' + (f.via === 'Driver' ? 'selected' : '') + '>Driver</option>' +
-    '<option value="Kurir" ' + (f.via === 'Kurir' ? 'selected' : '') + '>Kurir</option>' +
-    '<option value="Online" ' + (f.via === 'Online' ? 'selected' : '') + '>Online</option>';
+  var viaOpts = buildViaFilterOptionsHtml(f.via);
 
   return (
     '<div class="card" style="margin-bottom:14px">' +
@@ -3584,12 +3626,7 @@ function renderReportDeliveryOrderContent_() {
     stOpts += '<option value="' + escapeHtml(sv) + '" ' + (f.status === sv ? 'selected' : '') + '>' + (sv || 'Semua Status') + '</option>';
   }
 
-  var viaOptions = ['', 'Driver', 'Kurir', 'Online'];
-  var viaOpts = '';
-  for (var v = 0; v < viaOptions.length; v++) {
-    var vv = viaOptions[v];
-    viaOpts += '<option value="' + escapeHtml(vv) + '" ' + (f.via === vv ? 'selected' : '') + '>' + (vv ? 'Via ' + vv : 'Semua VIA') + '</option>';
-  }
+  var viaOpts = buildViaFilterOptionsHtml(f.via);
 
   var items = STATE.report.items;
   var rowsHtml = '';
