@@ -1533,7 +1533,7 @@ table.data-table {
 
 .barcode-reader-box {
   width: 100%;
-  min-height: 180px;
+  min-height: 190px;
   background: #0f172a;
   border-radius: var(--radius-sm);
   overflow: hidden;
@@ -1543,10 +1543,28 @@ table.data-table {
   justify-content: center;
 }
 
+.barcode-laser-line {
+  position: absolute;
+  left: 6%;
+  right: 6%;
+  height: 2.5px;
+  background: #ef4444;
+  box-shadow: 0 0 10px #ef4444, 0 0 20px #f87171;
+  animation: scanLaserAnim 1.6s ease-in-out infinite alternate;
+  z-index: 10;
+  pointer-events: none;
+}
+
+@keyframes scanLaserAnim {
+  0% { top: 18%; opacity: 0.8; }
+  50% { opacity: 1; }
+  100% { top: 82%; opacity: 0.8; }
+}
+
 .barcode-reader-box video {
   width: 100% !important;
   height: auto !important;
-  max-height: 240px;
+  max-height: 260px;
   object-fit: cover;
   border-radius: var(--radius-sm);
 }
