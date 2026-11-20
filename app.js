@@ -4882,17 +4882,27 @@ function toggleOrderBarcodeScanner() {
     var formatsToSupport = getOrderBarcodeFormats();
 
     var config = {
-      fps: 15,
+      fps: 25,
       qrbox: function (viewfinderWidth, viewfinderHeight) {
-        var w = Math.min(viewfinderWidth * 0.9, 320);
-        var h = Math.min(viewfinderHeight * 0.45, 110);
+        var w = Math.min(viewfinderWidth * 0.95, 360);
+        var h = Math.min(viewfinderHeight * 0.55, 140);
         return { width: Math.round(w), height: Math.round(h) };
       },
       aspectRatio: 1.777778,
-      formatsToSupport: formatsToSupport
+      formatsToSupport: formatsToSupport,
+      experimentalFeatures: {
+        useBarCodeDetectorIfSupported: true
+      }
     };
 
-    _orderBarcodeScannerInstance = new Html5Qrcode(readerId, { formatsToSupport: formatsToSupport, verbose: false });
+    _orderBarcodeScannerInstance = new Html5Qrcode(readerId, {
+      formatsToSupport: formatsToSupport,
+      experimentalFeatures: {
+        useBarCodeDetectorIfSupported: true
+      },
+      verbose: false
+    });
+
     _orderBarcodeScannerInstance.start(
       { facingMode: 'environment' },
       config,
@@ -4900,9 +4910,15 @@ function toggleOrderBarcodeScanner() {
         onBarcodeScanSuccess(decodedText);
       },
       function () {
-        // Continuous decoding frame search, ignore error frame
+        // Continuous decoding frame search
       }
-    ).catch(function () {
+    ).then(function () {
+      if (readerEl && !readerEl.querySelector('.barcode-laser-line')) {
+        var laser = document.createElement('div');
+        laser.className = 'barcode-laser-line';
+        readerEl.appendChild(laser);
+      }
+    }).catch(function () {
       if (readerEl) {
         readerEl.innerHTML =
           '<div style="padding:16px 14px;text-align:center;background:#0f172a;border-radius:6px;color:#fff">' +
