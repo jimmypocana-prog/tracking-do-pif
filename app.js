@@ -1017,8 +1017,8 @@ function renderOrdersView() {
 
       var statusExtra = '';
       if (d.status === 'Gagal Kirim') {
-        statusExtra = '<div class="cell-sub" style="color:var(--rose)">Alasan: ' + escapeHtml(d.alasanGagalKirim || '-') + '</div>' +
-          (d.sudahDikirimUlang === 'Ya' ? '<div class="cell-sub">Sudah dikirim ulang</div>' : '');
+        statusExtra = '<div class="cell-sub" style="color:var(--rose)"><strong>Alasan:</strong> ' + escapeHtml(d.alasanGagalKirim || '-') + '</div>' +
+          (d.sudahDikirimUlang === 'Ya' ? '<div class="cell-sub" style="color:var(--emerald)">Sudah dijadwalkan ulang</div>' : '<div class="cell-sub" style="color:var(--amber)">Belum dijadwalkan ulang</div>');
       } else if (d.namaPenerima) {
         statusExtra = '<div class="cell-sub">Penerima: ' + escapeHtml(d.namaPenerima) + '</div>';
       }
@@ -1029,6 +1029,10 @@ function renderOrdersView() {
 
       var viaTag = d.via ? '<span class="badge badge-via badge-via-' + d.via.toLowerCase() + '">' + escapeHtml(d.via) + '</span>' : '';
 
+      var fotoSummary = (d.status === 'Gagal Kirim')
+        ? '<div class="cell-sub" style="color:var(--rose)">Bukti Gagal: ' + (d.gagalKirimFotos || []).length + '/6</div>'
+        : '<div class="cell-sub">PickUp Foto: ' + (d.pickUpFotos || []).length + '/6</div><div class="cell-sub">CheckIn Foto: ' + (d.checkInFotos || []).length + '/6</div>';
+
       rowsHtml +=
         '<tr>' +
           '<td><div class="cell-strong">' + escapeHtml(d.idTracking) + '</div><div class="cell-sub">' + formatDateID(d.tanggalDO) + '</div></td>' +
@@ -1038,7 +1042,7 @@ function renderOrdersView() {
           '<td><div class="cell-strong">' + escapeHtml(d.namaCustomer) + '</div><div class="cell-sub">' + escapeHtml(d.customerAlamat || '-') + '</div></td>' +
           '<td><div class="cell-strong">' + escapeHtml(d.namaDriver) + '</div>' + mobilLine + '<div class="cell-sub">Via: ' + escapeHtml(d.via || 'Driver') + ' · Input: ' + escapeHtml(d.namaBackOffice) + '</div></td>' +
           '<td>' + getStatusBadgeHtml(d.status) + statusExtra + '</td>' +
-          '<td><div class="cell-sub">PickUp Foto: ' + (d.pickUpFotos || []).length + '/6</div><div class="cell-sub">CheckIn Foto: ' + (d.checkInFotos || []).length + '/6</div></td>' +
+          '<td>' + fotoSummary + '</td>' +
           '<td><div class="action-cluster">' + actions + '</div></td>' +
         '</tr>';
     }
@@ -1258,7 +1262,7 @@ function openOrderFormModal(existingIdTracking, isRedelivery) {
 
   var isEdit = Boolean(existing && !isRedelivery);
   var title = isRedelivery
-    ? 'Kirim Ulang Delivery Order (Redelivery)'
+    ? 'Kirim Ulang / Jadwalkan Ulang Delivery Order'
     : (isEdit ? 'Ubah Delivery Order' : 'Input Delivery Order Baru - PIF');
 
   var curVia = existing ? (existing.via || 'Driver') : 'Driver';
@@ -1286,7 +1290,12 @@ function openOrderFormModal(existingIdTracking, isRedelivery) {
   }
 
   var redeliveryBanner = isRedelivery && existing
-    ? '<div class="alert-box alert-warning">Mengirim ulang <strong>' + escapeHtml(existing.nomorDO) + '</strong> setelah gagal kirim oleh <strong>' + escapeHtml(existing.namaDriver) + '</strong> (Alasan: ' + escapeHtml(existing.alasanGagalKirim) + '). Riwayat gagal sebelumnya tetap tersimpan aman.</div>'
+    ? '<div class="alert-box alert-warning" style="margin-bottom:14px;border-left:4px solid var(--rose)">' +
+        '<div style="font-weight:700;margin-bottom:4px;font-size:14px">Penjadwalan Ulang DO Gagal Kirim</div>' +
+        '<div>Nomor DO: <strong>' + escapeHtml(existing.nomorDO) + '</strong></div>' +
+        '<div>Pengiriman Sebelumnya: <strong>' + escapeHtml(existing.namaDriver || '-') + '</strong> (Via ' + escapeHtml(existing.via || 'Driver') + ')</div>' +
+        '<div style="margin-top:6px;padding:6px 8px;background:#fff1f2;border-radius:6px"><strong>Keterangan Gagal Kirim:</strong> <span style="color:var(--rose)">' + escapeHtml(existing.alasanGagalKirim || '-') + '</span></div>' +
+      '</div>'
     : '';
 
   // Dropdown via dinamis dari Master VIA
@@ -1318,10 +1327,26 @@ function openOrderFormModal(existingIdTracking, isRedelivery) {
             '<input id="ord-id-tracking" class="form-control" type="text" readonly value="' + escapeHtml(isEdit ? existing.idTracking : 'Memuat ID...') + '" />' +
           '</div>' +
           '<div class="form-group">' +
-            '<label class="form-label" for="ord-tanggal">Tanggal Delivery Order <span class="req">*</span></label>' +
+            '<label class="form-label" for="ord-tanggal">' + (isRedelivery ? 'Tanggal Pengiriman Baru (Jadwal Ulang) <span class="req">*</span>' : 'Tanggal Delivery Order <span class="req">*</span>') + '</label>' +
             '<input id="ord-tanggal" class="form-control" type="date" value="' + escapeHtml(isEdit ? existing.tanggalDO : getTodayYMD()) + '" required />' +
           '</div>' +
         '</div>' +
+        (!isRedelivery ?
+          '<div class="barcode-scan-topbar">' +
+            '<button type="button" class="btn btn-navy btn-sm" id="btn-toggle-barcode" onclick="toggleOrderBarcodeScanner()" style="display:inline-flex;align-items:center;gap:6px;font-size:12.5px;padding:6px 12px">' +
+              (ICONS.barcode || ICONS.camera) +
+              '<span>Scan Barcode Invoice (Code 128)</span>' +
+            '</button>' +
+          '</div>' +
+          '<div id="ord-barcode-scanner-area" class="barcode-scanner-container" style="display:none">' +
+            '<div id="ord-barcode-reader" class="barcode-reader-box"></div>' +
+            '<div style="margin-top:8px;display:flex;gap:8px;justify-content:space-between;align-items:center">' +
+              '<button type="button" class="btn btn-secondary btn-sm" onclick="triggerBarcodeFileInput()">Pilih Foto Barcode</button>' +
+              '<button type="button" class="btn btn-outline-danger btn-sm" onclick="stopOrderBarcodeScanner()">Tutup Scanner</button>' +
+            '</div>' +
+            '<input id="ord-barcode-file-input" type="file" accept="image/*" style="display:none" onchange="handleBarcodeFileScan(this.files)" />' +
+          '</div>'
+        : '') +
         '<div class="form-group">' +
           '<label class="form-label" for="ord-nomor">Nomor Delivery Order <span class="req">*</span></label>' +
           '<input id="ord-nomor" class="form-control" type="text" value="' + escapeHtml(existing ? existing.nomorDO : '') + '" ' + (isRedelivery ? 'readonly' : '') + ' placeholder="Contoh: DO-PIF/11/0012" required />' +
@@ -1359,7 +1384,7 @@ function openOrderFormModal(existingIdTracking, isRedelivery) {
       '</div>' +
       '<div class="modal-footer">' +
         '<button type="button" class="btn btn-secondary" onclick="closeModal()">Batal</button>' +
-        '<button id="ord-save-btn" type="submit" class="btn btn-primary">' + (isRedelivery ? 'Buat Pengiriman Ulang' : 'Simpan Delivery Order') + '</button>' +
+        '<button id="ord-save-btn" type="submit" class="btn btn-primary">' + (isRedelivery ? 'Jadwalkan Kirim Ulang' : 'Simpan Delivery Order') + '</button>' +
       '</div>' +
     '</form>';
 
@@ -1604,9 +1629,11 @@ function renderDriverTrackingView() {
         } else {
           cardActions += '<button type="button" class="btn btn-primary btn-sm" onclick="openPickUpModal([\'' + escapeHtml(d.idTracking) + '\'])">' + ICONS.camera + '<span>Pick Up</span></button>';
         }
+        cardActions += '<button type="button" class="btn btn-outline-danger btn-sm" onclick="openFailedModal([\'' + escapeHtml(d.idTracking) + '\'])">' + ICONS.alert + '<span>Gagal Kirim</span></button>';
       } else if (d.status === 'Dalam Perjalanan') {
         if (d.via === 'Online') {
           cardActions += '<button type="button" class="btn btn-emerald btn-sm" onclick="openCompleteOnlineModal(\'' + escapeHtml(d.idTracking) + '\')">' + ICONS.check + '<span>Selesai (Bukti Terima)</span></button>';
+          cardActions += '<button type="button" class="btn btn-outline-danger btn-sm" onclick="openFailedModal([\'' + escapeHtml(d.idTracking) + '\'])">' + ICONS.alert + '<span>Gagal Kirim</span></button>';
         } else {
           cardActions += '<button type="button" class="btn btn-primary btn-sm" onclick="openCheckInModal([\'' + escapeHtml(d.idTracking) + '\'])">' + ICONS.mapPin + '<span>Check-In</span></button>';
           cardActions += '<button type="button" class="btn btn-outline-danger btn-sm" onclick="openFailedModal([\'' + escapeHtml(d.idTracking) + '\'])">' + ICONS.alert + '<span>Gagal Kirim</span></button>';
@@ -1665,7 +1692,9 @@ function renderDriverTrackingView() {
   if (selectedIds.length > 0) {
     var bulkButtons = '';
     if (activeTab === 'Siap Pick Up') {
-      bulkButtons = '<button type="button" class="btn btn-primary" onclick="openPickUpSelected()">' + ICONS.camera + '<span>Pick Up Terpilih (' + selectedIds.length + ')</span></button>';
+      bulkButtons =
+        '<button type="button" class="btn btn-primary" onclick="openPickUpSelected()">' + ICONS.camera + '<span>Pick Up Terpilih (' + selectedIds.length + ')</span></button>' +
+        '<button type="button" class="btn btn-danger" onclick="openFailedSelected()">' + ICONS.alert + '<span>Gagal Kirim (' + selectedIds.length + ')</span></button>';
     } else if (activeTab === 'Dalam Perjalanan') {
       bulkButtons =
         '<button type="button" class="btn btn-primary" onclick="openCheckInSelected()">' + ICONS.mapPin + '<span>Check-In Customer (' + selectedIds.length + ')</span></button>' +
@@ -2354,10 +2383,10 @@ function openFailedModal(idTrackings) {
         '<div id="gps-box-holder">' + renderGpsStatusBox() + '</div>' +
       '</div>' +
       '<div class="form-group">' +
-        '<label class="form-label" for="fail-alasan">Alasan Gagal Kirim <span class="req">*</span></label>' +
-        '<textarea id="fail-alasan" class="form-control" rows="3" placeholder="Contoh: Toko tutup, PIC menolak barang karena tidak sesuai PO, alamat tidak dapat diakses..." required></textarea>' +
+        '<label class="form-label" for="fail-alasan">Keterangan / Alasan Gagal Kirim <span class="req">*</span></label>' +
+        '<textarea id="fail-alasan" class="form-control" rows="3" placeholder="Contoh: Toko tutup, PIC menolak barang, kurir/ekspedisi menolak pengiriman, alamat tidak dapat diakses..." required></textarea>' +
       '</div>' +
-      renderPhotoUploaderSection('Foto Bukti Kendala di Lapangan', true) +
+      renderPhotoUploaderSection('Foto Bukti Kendala di Lapangan', false, true) +
     '</div>' +
     '<div class="modal-footer">' +
       '<button type="button" class="btn btn-secondary" onclick="closeModal()">Batal</button>' +
@@ -2376,7 +2405,11 @@ function submitFailedDelivery() {
   }
   var alasan = document.getElementById('fail-alasan').value.trim();
   if (!alasan || alasan.length < 3) {
-    showToast('Alasan Gagal Kirim wajib diisi minimal 3 karakter.', 'warning');
+    showToast('Keterangan / alasan Gagal Kirim wajib diisi minimal 3 karakter.', 'warning');
+    return;
+  }
+  if (!STATE.modalPhotos || !STATE.modalPhotos.length) {
+    showToast('Foto bukti kendala Gagal Kirim wajib diambil minimal 1 foto.', 'warning');
     return;
   }
 
@@ -4717,8 +4750,200 @@ function handleBackdropClick(ev) {
 }
 
 function closeModal() {
+  stopOrderBarcodeScanner();
   var root = document.getElementById('modal-root');
   if (root) {
     root.innerHTML = '';
   }
 }
+
+// ============================================================================
+// BARCODE SCANNER (CODE 128 / INVOICE) VIA HTML5-QRCODE
+// ============================================================================
+
+var _orderBarcodeScannerInstance = null;
+
+function playScanBeepSound() {
+  try {
+    var AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtx) return;
+    var ctx = new AudioCtx();
+    var osc = ctx.createOscillator();
+    var gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(880, ctx.currentTime);
+    gain.gain.setValueAtTime(0.25, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.15);
+  } catch (e) {
+    // Non-blocking
+  }
+}
+
+function stopOrderBarcodeScanner() {
+  var area = document.getElementById('ord-barcode-scanner-area');
+  if (area) {
+    area.style.display = 'none';
+  }
+  var btn = document.getElementById('btn-toggle-barcode');
+  if (btn) {
+    btn.innerHTML = (ICONS.barcode || ICONS.camera) + ' <span>Scan Barcode Invoice (Code 128)</span>';
+  }
+  if (_orderBarcodeScannerInstance) {
+    var instance = _orderBarcodeScannerInstance;
+    _orderBarcodeScannerInstance = null;
+    try {
+      instance.stop().then(function () {
+        try { instance.clear(); } catch (_) {}
+      }).catch(function (_) {
+        try { instance.clear(); } catch (__) {}
+      });
+    } catch (_) {
+      try { instance.clear(); } catch (___) {}
+    }
+  }
+}
+
+function onBarcodeScanSuccess(decodedText) {
+  var cleanText = String(decodedText || '').trim();
+  if (!cleanText) return;
+
+  playScanBeepSound();
+  stopOrderBarcodeScanner();
+
+  var inputNomor = document.getElementById('ord-nomor');
+  if (inputNomor) {
+    inputNomor.value = cleanText;
+    inputNomor.focus();
+    inputNomor.classList.add('input-scan-highlight');
+    setTimeout(function () {
+      if (inputNomor) inputNomor.classList.remove('input-scan-highlight');
+    }, 2500);
+  }
+  showToast('Nomor DO berhasil dipindai: ' + cleanText, 'success');
+}
+
+function toggleOrderBarcodeScanner() {
+  var area = document.getElementById('ord-barcode-scanner-area');
+  if (!area) return;
+
+  if (area.style.display !== 'none') {
+    stopOrderBarcodeScanner();
+    return;
+  }
+
+  if (typeof Html5Qrcode === 'undefined') {
+    showToast('Library pemindai barcode belum selesai dimuat. Silakan tunggu sebentar atau ketik Nomor DO secara manual.', 'warning');
+    return;
+  }
+
+  area.style.display = 'block';
+  var btn = document.getElementById('btn-toggle-barcode');
+  if (btn) {
+    btn.innerHTML = ICONS.x + ' <span>Tutup Scanner</span>';
+  }
+
+  var readerId = 'ord-barcode-reader';
+  var readerEl = document.getElementById(readerId);
+  if (readerEl) {
+    readerEl.innerHTML = '<div style="padding:20px;text-align:center;color:#94a3b8"><span class="spinner dark"></span><div style="margin-top:6px">Menghubungkan ke kamera...</div></div>';
+  }
+
+  if (_orderBarcodeScannerInstance) {
+    try { _orderBarcodeScannerInstance.clear(); } catch (_) {}
+    _orderBarcodeScannerInstance = null;
+  }
+
+  try {
+    var formatsToSupport = undefined;
+    if (window.Html5QrcodeSupportedFormats) {
+      formatsToSupport = [
+        Html5QrcodeSupportedFormats.CODE_128,
+        Html5QrcodeSupportedFormats.CODE_39,
+        Html5QrcodeSupportedFormats.EAN_13,
+        Html5QrcodeSupportedFormats.QR_CODE
+      ];
+    }
+
+    var config = {
+      fps: 15,
+      qrbox: function (viewfinderWidth, viewfinderHeight) {
+        var w = Math.min(viewfinderWidth * 0.9, 320);
+        var h = Math.min(viewfinderHeight * 0.45, 110);
+        return { width: Math.round(w), height: Math.round(h) };
+      },
+      aspectRatio: 1.777778,
+      formatsToSupport: formatsToSupport
+    };
+
+    _orderBarcodeScannerInstance = new Html5Qrcode(readerId, { formatsToSupport: formatsToSupport, verbose: false });
+    _orderBarcodeScannerInstance.start(
+      { facingMode: 'environment' },
+      config,
+      function (decodedText) {
+        onBarcodeScanSuccess(decodedText);
+      },
+      function () {
+        // Continuous decoding frame search, ignore error frame
+      }
+    ).catch(function (err) {
+      if (readerEl) {
+        readerEl.innerHTML =
+          '<div class="alert-box alert-warning" style="margin:8px;font-size:12.5px;text-align:left">' +
+            'Kamera live tidak dapat diakses (' + escapeHtml(err.message || 'Izin ditolak atau tidak ada kamera') + ').<br/>' +
+            'Silakan gunakan tombol <strong>"Pilih Foto Barcode"</strong> di bawah untuk memilih foto barcode dari galeri/kamera HP.' +
+          '</div>';
+      }
+    });
+  } catch (err) {
+    showToast('Error scanner: ' + err.message, 'error');
+    stopOrderBarcodeScanner();
+  }
+}
+
+function triggerBarcodeFileInput() {
+  var fileInput = document.getElementById('ord-barcode-file-input');
+  if (fileInput) {
+    fileInput.value = '';
+    fileInput.click();
+  }
+}
+
+function handleBarcodeFileScan(files) {
+  if (!files || !files.length) return;
+  var file = files[0];
+
+  if (typeof Html5Qrcode === 'undefined') {
+    showToast('Library pemindai barcode belum selesai dimuat.', 'error');
+    return;
+  }
+
+  var area = document.getElementById('ord-barcode-scanner-area');
+  if (area) area.style.display = 'block';
+
+  var readerId = 'ord-barcode-reader';
+  var readerEl = document.getElementById(readerId);
+  if (readerEl) {
+    readerEl.innerHTML = '<div style="padding:15px;text-align:center;color:#94a3b8"><span class="spinner dark"></span><div style="margin-top:6px">Memindai barcode dari file gambar...</div></div>';
+  }
+
+  var fileScanner = new Html5Qrcode(readerId, { verbose: false });
+  fileScanner.scanFile(file, true)
+    .then(function (decodedText) {
+      try { fileScanner.clear(); } catch (_) {}
+      onBarcodeScanSuccess(decodedText);
+    })
+    .catch(function () {
+      try { fileScanner.clear(); } catch (_) {}
+      if (readerEl) {
+        readerEl.innerHTML =
+          '<div class="alert-box alert-warning" style="margin:8px;font-size:12.5px;text-align:left">' +
+            'Garis barcode tidak terdeteksi dari gambar yang dipilih. Pastikan foto tegak, barcode Code 128 terlihat jelas, tidak buram, dan coba lagi.' +
+          '</div>';
+      }
+    });
+}
+

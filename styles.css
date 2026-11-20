@@ -1511,5 +1511,52 @@ table.data-table {
   margin-top: 4px;
 }
 
+/* ==========================================================================
+   Barcode Scanner (Code 128 / Invoice)
+   ========================================================================== */
+.barcode-scan-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  margin-bottom: 8px;
+}
+
+.barcode-scanner-container {
+  background: var(--bg-hover);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 12px;
+  box-shadow: var(--shadow-sm);
+  position: relative;
+  margin-bottom: 12px;
+}
+
+.barcode-reader-box {
+  width: 100%;
+  min-height: 180px;
+  background: #0f172a;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.barcode-reader-box video {
+  width: 100% !important;
+  height: auto !important;
+  max-height: 240px;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+}
+
+.input-scan-highlight {
+  border-color: var(--emerald) !important;
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.3) !important;
+  transition: all 0.3s ease;
+}
+
+
 
 
