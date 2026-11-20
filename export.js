@@ -24,7 +24,8 @@ function exportReportToPdf(items, summary, filters) {
     doc.text('TRACKING DELIVERY ORDER - PIF | LAPORAN PENGIRIMAN', 12, 10);
     doc.setFontSize(9);
     doc.setFont(undefined, 'normal');
-    doc.text('Periode: ' + periodText + '   |   Dicetak: ' + printedAt, 12, 16.5);
+    var viaSubText = (filters && filters.via) ? '   |   VIA: ' + filters.via : '   |   VIA: Semua';
+    doc.text('Periode: ' + periodText + '   |   Dicetak: ' + printedAt + viaSubText, 12, 16.5);
 
     doc.setTextColor(15, 23, 42);
     doc.setFontSize(9);
@@ -177,8 +178,9 @@ function exportReportToPdf(items, summary, filters) {
   }
   var htmlDoc = '<!DOCTYPE html><html><head><meta charset="utf-8"><title>Laporan Delivery PIF</title>' +
     '<style>body{font-family:sans-serif;font-size:11px;padding:16px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #cbd5e1;padding:6px;text-align:left}th{background:#0f172a;color:#fff}</style>' +
+    var viaPrintText = (filters && filters.via) ? ' | Pengiriman VIA: ' + escapeHtml(filters.via) : ' | Pengiriman VIA: Semua VIA';
     '</head><body><h2>Laporan Tracking Delivery Order - PIF</h2>' +
-    '<p>Periode: ' + escapeHtml(periodText) + ' | Dicetak: ' + escapeHtml(printedAt) + '</p>' +
+    '<p>Periode: ' + escapeHtml(periodText) + ' | Dicetak: ' + escapeHtml(printedAt) + viaPrintText + '</p>' +
     '<table><thead><tr><th>No</th><th>ID Tracking</th><th>Tgl DO</th><th>Nomor DO</th><th>VIA</th><th>Customer</th><th>Driver / Petugas</th><th>Mobil</th><th>Status</th><th>Penerima</th><th>Keterangan / Alasan Gagal</th></tr></thead>' +
     '<tbody>' + rowsHtml + '</tbody></table></body></html>';
   win.document.write(htmlDoc);
@@ -249,6 +251,7 @@ function exportReportToExcel(items, summary, filters) {
     var summaryRows = [
       { 'Metrik': 'Program', 'Nilai': 'Tracking Delivery Order - PIF' },
       { 'Metrik': 'Periode Filter', 'Nilai': (filters.dateFrom || 'Semua') + ' s/d ' + (filters.dateTo || 'Semua') },
+      { 'Metrik': 'Filter Pengiriman VIA', 'Nilai': (filters && filters.via) ? filters.via : 'Semua VIA' },
       { 'Metrik': 'Total Delivery Order', 'Nilai': summary.total || 0 },
       { 'Metrik': 'Siap Pick Up', 'Nilai': summary.siapPickUp || 0 },
       { 'Metrik': 'Dalam Proses (Jalan / Check-In)', 'Nilai': summary.dalamProses || 0 },
@@ -332,7 +335,8 @@ function exportAktivitasToPdf(items, summary, filters) {
     doc.text('TRACKING DELIVERY ORDER - PIF | LAPORAN AKTIVITAS & BBM DRIVER', 12, 10);
     doc.setFontSize(9);
     doc.setFont(undefined, 'normal');
-    doc.text('Periode: ' + periodText + '   |   Dicetak: ' + printedAt, 12, 16.5);
+    var viaSubText = (filters && filters.via) ? '   |   VIA: ' + filters.via : '   |   VIA: Semua';
+    doc.text('Periode: ' + periodText + '   |   Dicetak: ' + printedAt + viaSubText, 12, 16.5);
 
     doc.setTextColor(15, 23, 42);
     doc.setFontSize(8.5);
