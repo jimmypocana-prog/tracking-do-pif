@@ -1340,10 +1340,16 @@ function openOrderFormModal(existingIdTracking, isRedelivery) {
           '</div>' +
           '<div id="ord-barcode-scanner-area" class="barcode-scanner-container" style="display:none">' +
             '<div id="ord-barcode-reader" class="barcode-reader-box"></div>' +
-            '<div style="margin-top:8px;display:flex;gap:8px;justify-content:space-between;align-items:center">' +
-              '<button type="button" class="btn btn-secondary btn-sm" onclick="triggerBarcodeFileInput()">Pilih Foto Barcode</button>' +
+            '<div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:8px;justify-content:space-between;align-items:center">' +
+              '<div style="display:flex;gap:6px">' +
+                '<button type="button" class="btn btn-primary btn-sm" onclick="triggerBarcodeCameraInput()" style="display:inline-flex;align-items:center;gap:5px">' +
+                  (ICONS.camera || '') + '<span>Buka Kamera HP</span>' +
+                '</button>' +
+                '<button type="button" class="btn btn-secondary btn-sm" onclick="triggerBarcodeFileInput()">Pilih dari Galeri</button>' +
+              '</div>' +
               '<button type="button" class="btn btn-outline-danger btn-sm" onclick="stopOrderBarcodeScanner()">Tutup Scanner</button>' +
             '</div>' +
+            '<input id="ord-barcode-cam-input" type="file" accept="image/*" capture="environment" style="display:none" onchange="handleBarcodeFileScan(this.files)" />' +
             '<input id="ord-barcode-file-input" type="file" accept="image/*" style="display:none" onchange="handleBarcodeFileScan(this.files)" />' +
           '</div>'
         : '') +
@@ -4763,6 +4769,21 @@ function closeModal() {
 
 var _orderBarcodeScannerInstance = null;
 
+function getOrderBarcodeFormats() {
+  if (window.Html5QrcodeSupportedFormats) {
+    return [
+      Html5QrcodeSupportedFormats.CODE_128,
+      Html5QrcodeSupportedFormats.CODE_39,
+      Html5QrcodeSupportedFormats.EAN_13,
+      Html5QrcodeSupportedFormats.EAN_8,
+      Html5QrcodeSupportedFormats.UPC_A,
+      Html5QrcodeSupportedFormats.UPC_E,
+      Html5QrcodeSupportedFormats.QR_CODE
+    ];
+  }
+  return undefined;
+}
+
 function playScanBeepSound() {
   try {
     var AudioCtx = window.AudioContext || window.webkitAudioContext;
@@ -4858,15 +4879,7 @@ function toggleOrderBarcodeScanner() {
   }
 
   try {
-    var formatsToSupport = undefined;
-    if (window.Html5QrcodeSupportedFormats) {
-      formatsToSupport = [
-        Html5QrcodeSupportedFormats.CODE_128,
-        Html5QrcodeSupportedFormats.CODE_39,
-        Html5QrcodeSupportedFormats.EAN_13,
-        Html5QrcodeSupportedFormats.QR_CODE
-      ];
-    }
+    var formatsToSupport = getOrderBarcodeFormats();
 
     var config = {
       fps: 15,
@@ -4889,18 +4902,29 @@ function toggleOrderBarcodeScanner() {
       function () {
         // Continuous decoding frame search, ignore error frame
       }
-    ).catch(function (err) {
+    ).catch(function () {
       if (readerEl) {
         readerEl.innerHTML =
-          '<div class="alert-box alert-warning" style="margin:8px;font-size:12.5px;text-align:left">' +
-            'Kamera live tidak dapat diakses (' + escapeHtml(err.message || 'Izin ditolak atau tidak ada kamera') + ').<br/>' +
-            'Silakan gunakan tombol <strong>"Pilih Foto Barcode"</strong> di bawah untuk memilih foto barcode dari galeri/kamera HP.' +
+          '<div style="padding:16px 14px;text-align:center;background:#0f172a;border-radius:6px;color:#fff">' +
+            '<div style="font-weight:700;font-size:13.5px;margin-bottom:4px">Kamera Siap untuk Scan Barcode</div>' +
+            '<div style="font-size:12px;color:#94a3b8;margin-bottom:12px">Klik tombol di bawah untuk membuka kamera HP dan memotret barcode Code 128 invoice:</div>' +
+            '<button type="button" class="btn btn-primary btn-sm" onclick="triggerBarcodeCameraInput()" style="display:inline-flex;align-items:center;gap:6px;padding:8px 16px;font-size:13px;font-weight:700">' +
+              (ICONS.camera || '') + '<span>📷 Buka Kamera & Foto Barcode</span>' +
+            '</button>' +
           '</div>';
       }
     });
   } catch (err) {
     showToast('Error scanner: ' + err.message, 'error');
     stopOrderBarcodeScanner();
+  }
+}
+
+function triggerBarcodeCameraInput() {
+  var camInput = document.getElementById('ord-barcode-cam-input');
+  if (camInput) {
+    camInput.value = '';
+    camInput.click();
   }
 }
 
@@ -4927,10 +4951,16 @@ function handleBarcodeFileScan(files) {
   var readerId = 'ord-barcode-reader';
   var readerEl = document.getElementById(readerId);
   if (readerEl) {
-    readerEl.innerHTML = '<div style="padding:15px;text-align:center;color:#94a3b8"><span class="spinner dark"></span><div style="margin-top:6px">Memindai barcode dari file gambar...</div></div>';
+    readerEl.innerHTML =
+      '<div style="padding:20px;text-align:center;color:#94a3b8">' +
+        '<span class="spinner dark"></span>' +
+        '<div style="margin-top:8px;font-size:13px;font-weight:600">Memindai Barcode Code 128...</div>' +
+        '<div style="font-size:11.5px;color:#64748b">Mohon tunggu sebentar</div>' +
+      '</div>';
   }
 
-  var fileScanner = new Html5Qrcode(readerId, { verbose: false });
+  var formats = getOrderBarcodeFormats();
+  var fileScanner = new Html5Qrcode(readerId, { formatsToSupport: formats, verbose: false });
   fileScanner.scanFile(file, true)
     .then(function (decodedText) {
       try { fileScanner.clear(); } catch (_) {}
@@ -4941,7 +4971,8 @@ function handleBarcodeFileScan(files) {
       if (readerEl) {
         readerEl.innerHTML =
           '<div class="alert-box alert-warning" style="margin:8px;font-size:12.5px;text-align:left">' +
-            'Garis barcode tidak terdeteksi dari gambar yang dipilih. Pastikan foto tegak, barcode Code 128 terlihat jelas, tidak buram, dan coba lagi.' +
+            '<strong>Barcode belum terdeteksi.</strong><br/>' +
+            'Tips: Pastikan kamera tegak lurus, garis barcode Code 128 terlihat jelas, fokus tidak blur, lalu klik tombol <strong>"Buka Kamera HP"</strong> untuk mencoba foto lagi.' +
           '</div>';
       }
     });
