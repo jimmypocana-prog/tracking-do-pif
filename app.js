@@ -1145,7 +1145,7 @@ function renderMonitorView() {
       rowsHtml +=
         '<tr>' +
           '<td><div class="cell-strong">' + escapeHtml(d.nomorDO) + ' ' + monViaTag + '</div><div class="cell-sub">' + escapeHtml(d.idTracking) + ' · ' + formatDateID(d.tanggalDO) + '</div></td>' +
-          '<td><div class="cell-strong">' + escapeHtml(d.namaCustomer) + '</div><div class="cell-sub">Driver: ' + escapeHtml(d.namaDriver) + ' (' + escapeHtml(d.via || 'Driver') + ')</div><div class="cell-sub">Mobil: ' + mobilSummary + '</div></td>' +
+          '<td><div class="cell-strong">' + escapeHtml(d.namaCustomer) + '</div><div class="cell-sub">Driver: ' + escapeHtml(d.namaDriver) + '</div><div class="cell-sub">Mobil: ' + mobilSummary + '</div></td>' +
           '<td>' + getStatusBadgeHtml(d.status) + (d.percobaanKe > 1 ? '<div class="cell-sub">Percobaan #' + d.percobaanKe + '</div>' : '') + '</td>' +
           '<td>' + waktuSummary + '</td>' +
           '<td>' + gpsLinks + '</td>' +
@@ -3769,7 +3769,7 @@ function renderReportDeliveryOrderContent_() {
         '<tr>' +
           '<td><div class="cell-strong">' + escapeHtml(r.nomorDO) + ' ' + repViaTag + '</div><div class="cell-sub">' + escapeHtml(r.idTracking) + ' · #' + (r.percobaanKe || 1) + '</div></td>' +
           '<td>' + formatDateID(r.tanggalDO) + '</td>' +
-          '<td><div class="cell-strong">' + escapeHtml(r.namaCustomer) + '</div><div class="cell-sub">Petugas: ' + escapeHtml(r.namaDriver) + ' (' + escapeHtml(r.via || 'Driver') + ')</div><div class="cell-sub">Mobil: ' + repMobilText + '</div></td>' +
+          '<td><div class="cell-strong">' + escapeHtml(r.namaCustomer) + '</div><div class="cell-sub">Petugas: ' + escapeHtml(r.namaDriver) + '</div><div class="cell-sub">Mobil: ' + repMobilText + '</div></td>' +
           '<td>' + getStatusBadgeHtml(r.status) + '</td>' +
           '<td><div class="cell-sub">PickUp: ' + (r.waktuPickUp ? formatDateTimeID(r.waktuPickUp) : '-') + '</div><div class="cell-sub">Check-In: ' + (r.waktuCheckIn ? formatDateTimeID(r.waktuCheckIn) : '-') + '</div><div class="cell-sub">Check-Out: ' + (r.waktuCheckOut ? formatDateTimeID(r.waktuCheckOut) : '-') + '</div></td>' +
           '<td><div class="cell-strong">' + escapeHtml(r.namaPenerima || '-') + '</div><div class="cell-sub">' + escapeHtml(r.status === 'Gagal Kirim' ? 'Gagal: ' + r.alasanGagalKirim : (r.keterangan || '-')) + '</div></td>' +
