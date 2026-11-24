@@ -709,6 +709,24 @@ table.data-table {
   border: 1px solid #e9d5ff;
 }
 
+.badge-driver {
+  background: var(--primary-soft);
+  color: var(--primary);
+  border: 1px solid #bfdbfe;
+}
+
+.badge-kurir {
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #fde68a;
+}
+
+.badge-primary {
+  background: #eff6ff;
+  color: #1d4ed8;
+  border: 1px solid #bfdbfe;
+}
+
 /* ==================== DRIVER TRACKING CARDS & TABS ==================== */
 .tabs-bar {
   display: flex;

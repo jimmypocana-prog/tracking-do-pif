@@ -133,7 +133,7 @@ window.onSessionExpired = function () {
 
 document.addEventListener('DOMContentLoaded', function () {
   if (STATE.session && STATE.session.user) {
-    STATE.currentPage = (STATE.session.user.divisi === 'Driver' || STATE.session.user.divisi === 'Admin Delivery') ? 'tracking-driver' : 'dashboard';
+    STATE.currentPage = (STATE.session.user.divisi === 'Driver' || STATE.session.user.divisi === 'Kurir' || STATE.session.user.divisi === 'Admin Delivery') ? 'tracking-driver' : 'dashboard';
     renderApp();
     loadActivePageData(false);
     startAutoSyncLoop();
@@ -365,9 +365,11 @@ function renderApp() {
     overflowItems =
       '<button type="button" class="dropdown-item danger" onclick="handleLogout()">' + ICONS.logout + '<span>Keluar</span></button>';
   } else {
+    var isKurirUser = (user.divisi === 'Kurir');
+    var trackingTitle = isKurirUser ? 'Tracking Kurir' : 'Tracking Driver';
     navPrimary =
       '<button type="button" class="nav-btn ' + (STATE.currentPage === 'aktivitas-driver' ? 'active' : '') + '" onclick="navigateTo(\'aktivitas-driver\')">' + ICONS.clock + '<span>Aktivitas</span></button>' +
-      '<button type="button" class="nav-btn ' + (STATE.currentPage === 'tracking-driver' ? 'active' : '') + '" onclick="navigateTo(\'tracking-driver\')">' + ICONS.truck + '<span>Tracking Driver</span></button>' +
+      '<button type="button" class="nav-btn ' + (STATE.currentPage === 'tracking-driver' ? 'active' : '') + '" onclick="navigateTo(\'tracking-driver\')">' + ICONS.truck + '<span>' + trackingTitle + '</span></button>' +
       '<button type="button" class="nav-btn ' + (STATE.currentPage === 'dashboard' ? 'active' : '') + '" onclick="navigateTo(\'dashboard\')">' + ICONS.dashboard + '<span>Ringkasan</span></button>';
 
     overflowItems =
@@ -597,7 +599,7 @@ function bindLoginEvents() {
         STATE.lastSyncTime = '';
         STATE.session = data;
         saveSession(data);
-        STATE.currentPage = (data.user.divisi === 'Driver' || data.user.divisi === 'Admin Delivery') ? 'tracking-driver' : 'dashboard';
+        STATE.currentPage = (data.user.divisi === 'Driver' || data.user.divisi === 'Kurir' || data.user.divisi === 'Admin Delivery') ? 'tracking-driver' : 'dashboard';
         renderApp();
         loadActivePageData(true);
         startAutoSyncLoop();
@@ -778,7 +780,7 @@ function renderDashboardView() {
 
   var quickCta = isBackOffice
     ? '<button type="button" class="btn btn-primary btn-sm" onclick="navigateTo(\'orders\')">' + ICONS.plus + '<span>Input DO Baru</span></button>'
-    : '<button type="button" class="btn btn-primary btn-sm" onclick="navigateTo(\'tracking-driver\')">' + ICONS.truck + '<span>Buka Tracking Driver</span></button>';
+    : '<button type="button" class="btn btn-primary btn-sm" onclick="navigateTo(\'tracking-driver\')">' + ICONS.truck + '<span>' + (user.divisi === 'Kurir' ? 'Buka Tracking Kurir' : 'Buka Tracking Driver') + '</span></button>';
 
   return (
     '<div class="page-header">' +
@@ -919,10 +921,11 @@ function refreshViaFilterDropdownInDom_() {
 
 function renderOrdersFilterBar(isMonitor) {
   var f = STATE.orders.filters;
-  var driverOpts = '<option value="">Semua Driver</option>';
+  var driverOpts = '<option value="">Semua Driver / Kurir</option>';
   var drivers = STATE.dropdowns.drivers || [];
   for (var i = 0; i < drivers.length; i++) {
-    driverOpts += '<option value="' + escapeHtml(drivers[i].idKaryawan) + '" ' + (f.driverId === drivers[i].idKaryawan ? 'selected' : '') + '>' + escapeHtml(drivers[i].namaKaryawan) + '</option>';
+    var dRole = drivers[i].divisi ? ' (' + escapeHtml(drivers[i].divisi) + ')' : '';
+    driverOpts += '<option value="' + escapeHtml(drivers[i].idKaryawan) + '" ' + (f.driverId === drivers[i].idKaryawan ? 'selected' : '') + '>' + escapeHtml(drivers[i].namaKaryawan) + dRole + '</option>';
   }
 
   var statuses = ['', 'Siap Pick Up', 'Dalam Perjalanan', 'Check-In Customer', 'Selesai', 'Gagal Kirim'];
@@ -950,7 +953,7 @@ function renderOrdersFilterBar(isMonitor) {
           '<select id="ord-filter-via" class="form-control">' + viaOpts + '</select>' +
         '</div>' +
         '<div class="form-group">' +
-          '<label class="form-label">Driver</label>' +
+          '<label class="form-label">Driver / Kurir</label>' +
           '<select id="ord-filter-driver" class="form-control">' + driverOpts + '</select>' +
         '</div>' +
         '<div class="form-group">' +
@@ -1189,21 +1192,20 @@ function buildOrderMobilOptionsHtml(preSelectedMobilId) {
 }
 
 function renderOrderPersonnelOptionsHtml(selectedVia, currentDriverId) {
-  if (selectedVia !== 'Driver') {
-    return '';
-  }
-
-  // selectedVia === 'Driver'
   var drivers = STATE.dropdowns.drivers || [];
   var filtered = [];
   for (var i = 0; i < drivers.length; i++) {
     var d = drivers[i];
-    if (d.divisi === 'Driver') {
+    if (d.divisi === 'Driver' || d.divisi === 'Kurir') {
       filtered.push(d);
     }
   }
   var list = filtered.length ? filtered : drivers;
-  var html = '<option value="">-- Pilih Driver --</option>';
+  var placeholder = (selectedVia === 'Kurir') ? '-- Pilih Kurir / Driver --' : '-- Pilih Driver / Kurir --';
+  var html = '<option value="">' + placeholder + '</option>';
+  if (selectedVia === 'Kurir') {
+    html += '<option value="KURIR" ' + (currentDriverId === 'KURIR' ? 'selected' : '') + '>Kurir Ekspedisi (Luar)</option>';
+  }
   for (var j = 0; j < list.length; j++) {
     var selD = (currentDriverId && currentDriverId === list[j].idKaryawan) ? 'selected' : '';
     html += '<option value="' + escapeHtml(list[j].idKaryawan) + '" ' + selD + '>' +
@@ -1220,25 +1222,31 @@ function handleOrderViaChange(selectedVia, keepDriverId) {
   var mobilLabel = document.getElementById('ord-mobil-label');
   var mobilSel = document.getElementById('ord-mobil');
 
-  if (selectedVia === 'Driver') {
+  if (selectedVia === 'Driver' || selectedVia === 'Kurir') {
     if (drvGroup) drvGroup.style.display = 'block';
-    if (drvLabel) drvLabel.innerHTML = 'Driver Bertugas <span class="req">*</span>';
+    if (drvLabel) {
+      drvLabel.innerHTML = (selectedVia === 'Kurir')
+        ? 'Kurir Bertugas <span class="req">*</span>'
+        : 'Driver Bertugas <span class="req">*</span>';
+    }
     if (drvSel) {
       drvSel.required = true;
       var curDrv = keepDriverId !== undefined ? keepDriverId : drvSel.value;
-      drvSel.innerHTML = renderOrderPersonnelOptionsHtml('Driver', curDrv);
+      drvSel.innerHTML = renderOrderPersonnelOptionsHtml(selectedVia, curDrv);
     }
-    if (mobilLabel) mobilLabel.innerHTML = 'Plat Mobil <span class="req">*</span>';
-    if (mobilSel) mobilSel.required = true;
+    if (mobilLabel) {
+      mobilLabel.innerHTML = (selectedVia === 'Kurir') ? 'Plat Mobil (Opsional)' : 'Plat Mobil <span class="req">*</span>';
+    }
+    if (mobilSel) {
+      mobilSel.required = (selectedVia === 'Driver');
+    }
   } else {
-    // Kurir, Online, atau VIA lainnya: kolom petugas dan barisnya dihilangkan total
+    // Online atau VIA lainnya: kolom petugas dan barisnya dihilangkan total
     if (drvGroup) drvGroup.style.display = 'none';
     if (drvSel) {
       drvSel.required = false;
       drvSel.innerHTML = '';
-      if (selectedVia === 'Kurir') {
-        drvSel.value = 'KURIR';
-      } else if (selectedVia === 'Online') {
+      if (selectedVia === 'Online') {
         drvSel.value = 'ONLINE';
       } else {
         drvSel.value = String(selectedVia).toUpperCase();
@@ -1275,8 +1283,9 @@ function openOrderFormModal(existingIdTracking, isRedelivery) {
     custOpts += '<option value="' + escapeHtml(customers[c].idCustomer) + '" ' + selC + '>' + escapeHtml(customers[c].namaCustomer) + '</option>';
   }
 
+  var isPersonnelVia = (curVia === 'Driver' || curVia === 'Kurir');
   var isDriverVia = (curVia === 'Driver');
-  var drvOpts = isDriverVia ? renderOrderPersonnelOptionsHtml('Driver', curDriverId) : '';
+  var drvOpts = isPersonnelVia ? renderOrderPersonnelOptionsHtml(curVia, curDriverId) : '';
 
   var preSelectedMobilId = existing ? (existing.idMobil || '') : '';
   var mobils = STATE.dropdowns.mobils || [];
@@ -1369,9 +1378,9 @@ function openOrderFormModal(existingIdTracking, isRedelivery) {
             '<select id="ord-customer" class="form-control" required>' + custOpts + '</select>' +
           '</div>' +
         '</div>' +
-        '<div id="ord-driver-group" class="form-group" style="display:' + (isDriverVia ? 'block' : 'none') + '">' +
-          '<label id="ord-driver-label" class="form-label" for="ord-driver">Driver Bertugas <span class="req">*</span></label>' +
-          '<select id="ord-driver" class="form-control" ' + (isDriverVia ? 'required' : '') + '>' + drvOpts + '</select>' +
+        '<div id="ord-driver-group" class="form-group" style="display:' + (isPersonnelVia ? 'block' : 'none') + '">' +
+          '<label id="ord-driver-label" class="form-label" for="ord-driver">' + (curVia === 'Kurir' ? 'Kurir Bertugas <span class="req">*</span>' : 'Driver Bertugas <span class="req">*</span>') + '</label>' +
+          '<select id="ord-driver" class="form-control" ' + (isPersonnelVia ? 'required' : '') + '>' + drvOpts + '</select>' +
         '</div>' +
         '<div class="form-grid-2">' +
           '<div class="form-group">' +
@@ -2025,33 +2034,34 @@ function openPickUpModal(idTrackings) {
   STATE.modalGpsLoading = true;
   STATE.modalGpsError = '';
 
-  var isAllKurir = false;
+  var isAllExternalKurir = false;
   if (idTrackings.length > 0) {
     var countKurir = 0;
     for (var k = 0; k < idTrackings.length; k++) {
       for (var m = 0; m < STATE.tracking.items.length; m++) {
         if (STATE.tracking.items[m].idTracking === idTrackings[k]) {
-          if (STATE.tracking.items[m].via === 'Kurir') {
+          var itm = STATE.tracking.items[m];
+          if (itm.via === 'Kurir' && (itm.idDriver === 'KURIR' || !itm.idDriver)) {
             countKurir++;
           }
           break;
         }
       }
     }
-    isAllKurir = (countKurir === idTrackings.length);
+    isAllExternalKurir = (countKurir === idTrackings.length);
   }
 
-  var kurirNotice = isAllKurir
+  var kurirNotice = isAllExternalKurir
     ? '<div class="alert-box alert-info" style="margin-top:10px;margin-bottom:12px">' +
-        'Pengiriman Via <strong>Kurir</strong>: Setelah foto penyerahan barang diambil dan dikonfirmasi, status DO akan <strong>langsung berpindah ke Selesai</strong>.' +
+        'Pengiriman Via <strong>Kurir Ekspedisi</strong>: Setelah foto penyerahan barang diambil dan dikonfirmasi, status DO akan <strong>langsung berpindah ke Selesai</strong>.' +
       '</div>'
     : '';
 
-  var modalTitle = isAllKurir
-    ? 'Konfirmasi Serahkan ke Kurir (' + idTrackings.length + ' DO)'
+  var modalTitle = isAllExternalKurir
+    ? 'Konfirmasi Serahkan ke Kurir Ekspedisi (' + idTrackings.length + ' DO)'
     : 'Konfirmasi Pick Up Barang (' + idTrackings.length + ' DO)';
 
-  var submitBtnText = isAllKurir
+  var submitBtnText = isAllExternalKurir
     ? 'Konfirmasi Serahkan (Selesai)'
     : 'Konfirmasi Pick Up';
 
@@ -2643,7 +2653,9 @@ function renderKaryawanView() {
         ? '<span class="badge badge-info">Back Office</span>'
         : (k.divisi === 'Admin Delivery'
             ? '<span class="badge badge-primary">Admin Delivery</span>'
-            : '<span class="badge badge-jalan">Driver</span>');
+            : (k.divisi === 'Kurir'
+                ? '<span class="badge badge-kurir">Kurir</span>'
+                : '<span class="badge badge-jalan">Driver</span>'));
       var badgeStatus = k.status === 'Aktif' ? '<span class="badge badge-selesai">Aktif</span>' : '<span class="badge badge-gagal">Nonaktif</span>';
 
       rowsHtml +=
@@ -2662,7 +2674,7 @@ function renderKaryawanView() {
     '<div class="page-header">' +
       '<div>' +
         '<h2 class="page-title">Master Karyawan</h2>' +
-        '<p class="page-subtitle">Kelola data karyawan beserta akun login divisi Back Office, Driver, dan Admin Delivery</p>' +
+        '<p class="page-subtitle">Kelola data karyawan beserta akun login divisi Back Office, Driver, Kurir, dan Admin Delivery</p>' +
       '</div>' +
       '<div class="header-actions">' +
         renderSyncStatusBadge() +
@@ -2672,7 +2684,7 @@ function renderKaryawanView() {
     '<div class="card" style="margin-bottom:14px">' +
       '<div class="filter-bar" style="margin-bottom:0">' +
         '<div class="form-group"><label class="form-label">Cari Karyawan</label><input id="kry-search" class="form-control" type="text" value="' + escapeHtml(f.search) + '" placeholder="Nama, ID, username..." onkeydown="if(event.key===\'Enter\'){event.preventDefault();applyKaryawanFilter();}" /></div>' +
-        '<div class="form-group"><label class="form-label">Divisi</label><select id="kry-divisi" class="form-control"><option value="">Semua Divisi</option><option value="Back Office" ' + (f.divisi === 'Back Office' ? 'selected' : '') + '>Back Office</option><option value="Driver" ' + (f.divisi === 'Driver' ? 'selected' : '') + '>Driver</option><option value="Admin Delivery" ' + (f.divisi === 'Admin Delivery' ? 'selected' : '') + '>Admin Delivery</option></select></div>' +
+        '<div class="form-group"><label class="form-label">Divisi</label><select id="kry-divisi" class="form-control"><option value="">Semua Divisi</option><option value="Back Office" ' + (f.divisi === 'Back Office' ? 'selected' : '') + '>Back Office</option><option value="Driver" ' + (f.divisi === 'Driver' ? 'selected' : '') + '>Driver</option><option value="Kurir" ' + (f.divisi === 'Kurir' ? 'selected' : '') + '>Kurir</option><option value="Admin Delivery" ' + (f.divisi === 'Admin Delivery' ? 'selected' : '') + '>Admin Delivery</option></select></div>' +
         '<div class="form-group"><label class="form-label">Status</label><select id="kry-status" class="form-control"><option value="">Semua</option><option value="Aktif" ' + (f.status === 'Aktif' ? 'selected' : '') + '>Aktif</option><option value="Nonaktif" ' + (f.status === 'Nonaktif' ? 'selected' : '') + '>Nonaktif</option></select></div>' +
         '<div class="form-group" style="display:flex;gap:6px">' +
           '<button type="button" class="btn btn-navy" onclick="applyKaryawanFilter()">Filter</button>' +
@@ -2706,7 +2718,7 @@ function openKaryawanModal(idKaryawan) {
       '<div class="modal-body">' +
         '<div class="form-grid-2">' +
           '<div class="form-group"><label class="form-label">Nama Lengkap <span class="req">*</span></label><input id="kf-nama" class="form-control" type="text" value="' + escapeHtml(item ? item.namaKaryawan : '') + '" required /></div>' +
-          '<div class="form-group"><label class="form-label">Divisi <span class="req">*</span></label><select id="kf-divisi" class="form-control" required><option value="Driver" ' + (curDivisi === 'Driver' ? 'selected' : '') + '>Driver</option><option value="Back Office" ' + (curDivisi === 'Back Office' ? 'selected' : '') + '>Back Office</option><option value="Admin Delivery" ' + (curDivisi === 'Admin Delivery' ? 'selected' : '') + '>Admin Delivery</option></select></div>' +
+          '<div class="form-group"><label class="form-label">Divisi <span class="req">*</span></label><select id="kf-divisi" class="form-control" required><option value="Driver" ' + (curDivisi === 'Driver' ? 'selected' : '') + '>Driver</option><option value="Kurir" ' + (curDivisi === 'Kurir' ? 'selected' : '') + '>Kurir</option><option value="Back Office" ' + (curDivisi === 'Back Office' ? 'selected' : '') + '>Back Office</option><option value="Admin Delivery" ' + (curDivisi === 'Admin Delivery' ? 'selected' : '') + '>Admin Delivery</option></select></div>' +
         '</div>' +
         '<div class="form-grid-2">' +
           '<div class="form-group"><label class="form-label">No. WhatsApp</label><input id="kf-wa" class="form-control" type="text" value="' + escapeHtml(item ? item.noWhatsApp : '') + '" placeholder="0812xxxxxxxx" /></div>' +
@@ -3569,7 +3581,11 @@ function changeReportPage(p) {
 }
 
 function triggerExportReport(formatType) {
-  var f = STATE.report.filters;
+  var f = Object.assign({}, STATE.report.filters);
+  var drvEl = document.getElementById('rep-driver');
+  if (drvEl && drvEl.selectedIndex > 0) {
+    f.driverName = drvEl.options[drvEl.selectedIndex].text;
+  }
   showToast('Menyiapkan seluruh data untuk export ' + formatType.toUpperCase() + '...', 'info');
   callGasApi('getDeliveryReport', {
     dateFrom: f.dateFrom,
@@ -3611,11 +3627,11 @@ function resetReportFilter() {
 }
 
 function resetLaporanAktivitasFilter() {
-  var isDriver = STATE.session && STATE.session.user && STATE.session.user.divisi === 'Driver';
+  var isFieldUser = STATE.session && STATE.session.user && (STATE.session.user.divisi === 'Driver' || STATE.session.user.divisi === 'Kurir');
   STATE.laporanAktivitas.filters = {
     dateFrom: '',
     dateTo: '',
-    driverId: isDriver ? STATE.session.user.idKaryawan : '',
+    driverId: isFieldUser ? STATE.session.user.idKaryawan : '',
     platMobil: '',
     status: '',
     search: ''
@@ -3648,9 +3664,10 @@ function renderReportDeliveryOrderContent_() {
   var drivers = STATE.dropdowns.drivers || [];
   var customers = STATE.dropdowns.customers || [];
 
-  var drvOpts = '<option value="">Semua Driver</option>';
+  var drvOpts = '<option value="">Semua Driver / Kurir</option>';
   for (var d = 0; d < drivers.length; d++) {
-    drvOpts += '<option value="' + escapeHtml(drivers[d].idKaryawan) + '" ' + (f.driverId === drivers[d].idKaryawan ? 'selected' : '') + '>' + escapeHtml(drivers[d].namaKaryawan) + '</option>';
+    var dRole = drivers[d].divisi ? ' (' + escapeHtml(drivers[d].divisi) + ')' : '';
+    drvOpts += '<option value="' + escapeHtml(drivers[d].idKaryawan) + '" ' + (f.driverId === drivers[d].idKaryawan ? 'selected' : '') + '>' + escapeHtml(drivers[d].namaKaryawan) + dRole + '</option>';
   }
 
   var cstOpts = '<option value="">Semua Customer</option>';
@@ -3712,7 +3729,7 @@ function renderReportDeliveryOrderContent_() {
       '<div class="filter-bar" style="margin-bottom:0">' +
         '<div class="form-group"><label class="form-label">Dari Tanggal</label><input id="rep-from" class="form-control" type="date" value="' + escapeHtml(f.dateFrom) + '" /></div>' +
         '<div class="form-group"><label class="form-label">Sampai Tanggal</label><input id="rep-to" class="form-control" type="date" value="' + escapeHtml(f.dateTo) + '" /></div>' +
-        '<div class="form-group"><label class="form-label">Driver</label><select id="rep-driver" class="form-control">' + drvOpts + '</select></div>' +
+        '<div class="form-group"><label class="form-label">Driver / Kurir</label><select id="rep-driver" class="form-control">' + drvOpts + '</select></div>' +
         '<div class="form-group"><label class="form-label">Customer</label><select id="rep-customer" class="form-control">' + cstOpts + '</select></div>' +
         '<div class="form-group"><label class="form-label">Pengiriman VIA</label><select id="rep-via" class="form-control">' + viaOpts + '</select></div>' +
         '<div class="form-group"><label class="form-label">Status</label><select id="rep-status" class="form-control">' + stOpts + '</select></div>' +
@@ -4461,7 +4478,11 @@ function changeLaporanAktivitasPage(p) {
 }
 
 function triggerExportAktivitas(formatType) {
-  var f = STATE.laporanAktivitas.filters;
+  var f = Object.assign({}, STATE.laporanAktivitas.filters);
+  var drvEl = document.getElementById('akt-rep-driver');
+  if (drvEl && drvEl.selectedIndex > 0) {
+    f.driverName = drvEl.options[drvEl.selectedIndex].text;
+  }
   showToast('Menyiapkan seluruh data laporan aktivitas untuk export ' + formatType.toUpperCase() + '...', 'info');
 
   callGasApi('listLaporanAktivitas', {
@@ -4487,19 +4508,20 @@ function renderLaporanAktivitasContent_() {
   var f = STATE.laporanAktivitas.filters;
   var s = STATE.laporanAktivitas.summary || {};
   var user = STATE.session.user;
-  var isDriver = user.divisi === 'Driver';
+  var isDriver = user.divisi === 'Driver' || user.divisi === 'Kurir';
 
   var drivers = (STATE.dropdowns && STATE.dropdowns.drivers) || [];
   var mobils = (STATE.dropdowns && STATE.dropdowns.mobils) || [];
 
   // Dropdown Driver Options
-  var drvOpts = '<option value="">Semua Driver</option>';
+  var drvOpts = '<option value="">Semua Driver / Kurir</option>';
   if (isDriver) {
-    drvOpts = '<option value="' + escapeHtml(user.idKaryawan) + '" selected>' + escapeHtml(user.namaKaryawan) + '</option>';
+    drvOpts = '<option value="' + escapeHtml(user.idKaryawan) + '" selected>' + escapeHtml(user.namaKaryawan) + (user.divisi ? ' (' + escapeHtml(user.divisi) + ')' : '') + '</option>';
   } else {
     for (var d = 0; d < drivers.length; d++) {
       var drv = drivers[d];
-      drvOpts += '<option value="' + escapeHtml(drv.idKaryawan) + '" ' + (f.driverId === drv.idKaryawan ? 'selected' : '') + '>' + escapeHtml(drv.namaKaryawan) + '</option>';
+      var drvRole = drv.divisi ? ' (' + escapeHtml(drv.divisi) + ')' : '';
+      drvOpts += '<option value="' + escapeHtml(drv.idKaryawan) + '" ' + (f.driverId === drv.idKaryawan ? 'selected' : '') + '>' + escapeHtml(drv.namaKaryawan) + drvRole + '</option>';
     }
   }
 
@@ -4586,7 +4608,7 @@ function renderLaporanAktivitasContent_() {
       '<div class="filter-bar" style="margin-bottom:0">' +
         '<div class="form-group"><label class="form-label">Dari Tanggal</label><input id="akt-rep-from" class="form-control" type="date" value="' + escapeHtml(f.dateFrom) + '" /></div>' +
         '<div class="form-group"><label class="form-label">Sampai Tanggal</label><input id="akt-rep-to" class="form-control" type="date" value="' + escapeHtml(f.dateTo) + '" /></div>' +
-        '<div class="form-group"><label class="form-label">Driver</label><select id="akt-rep-driver" class="form-control" ' + (isDriver ? 'disabled' : '') + '>' + drvOpts + '</select></div>' +
+        '<div class="form-group"><label class="form-label">Driver / Kurir</label><select id="akt-rep-driver" class="form-control" ' + (isDriver ? 'disabled' : '') + '>' + drvOpts + '</select></div>' +
         '<div class="form-group"><label class="form-label">Armada Mobil</label><select id="akt-rep-mobil" class="form-control">' + mblOpts + '</select></div>' +
         '<div class="form-group"><label class="form-label">Status</label><select id="akt-rep-status" class="form-control">' + stOpts + '</select></div>' +
         '<div class="form-group"><label class="form-label">Cari Teks</label><input id="akt-rep-search" class="form-control" type="text" value="' + escapeHtml(f.search) + '" placeholder="ID / Plat / Driver..." onkeydown="if(event.key===\'Enter\'){event.preventDefault();applyLaporanAktivitasFilter();}" /></div>' +
