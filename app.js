@@ -133,7 +133,9 @@ window.onSessionExpired = function () {
 
 document.addEventListener('DOMContentLoaded', function () {
   if (STATE.session && STATE.session.user) {
-    STATE.currentPage = (STATE.session.user.divisi === 'Driver' || STATE.session.user.divisi === 'Kurir' || STATE.session.user.divisi === 'Admin Delivery') ? 'tracking-driver' : 'dashboard';
+    var uDiv = STATE.session.user.divisi;
+    var isFieldOrAdmin = (uDiv === 'Driver PIF' || uDiv === 'Driver' || uDiv === 'Kurir PIF' || uDiv === 'Kurir' || uDiv === 'Admin Delivery');
+    STATE.currentPage = isFieldOrAdmin ? 'tracking-driver' : 'dashboard';
     renderApp();
     loadActivePageData(false);
     startAutoSyncLoop();
@@ -365,7 +367,7 @@ function renderApp() {
     overflowItems =
       '<button type="button" class="dropdown-item danger" onclick="handleLogout()">' + ICONS.logout + '<span>Keluar</span></button>';
   } else {
-    var isKurirUser = (user.divisi === 'Kurir');
+    var isKurirUser = (user.divisi === 'Kurir' || user.divisi === 'Kurir PIF');
     var trackingTitle = isKurirUser ? 'Tracking Kurir' : 'Tracking Driver';
     navPrimary =
       '<button type="button" class="nav-btn ' + (STATE.currentPage === 'aktivitas-driver' ? 'active' : '') + '" onclick="navigateTo(\'aktivitas-driver\')">' + ICONS.clock + '<span>Aktivitas</span></button>' +
@@ -599,7 +601,9 @@ function bindLoginEvents() {
         STATE.lastSyncTime = '';
         STATE.session = data;
         saveSession(data);
-        STATE.currentPage = (data.user.divisi === 'Driver' || data.user.divisi === 'Kurir' || data.user.divisi === 'Admin Delivery') ? 'tracking-driver' : 'dashboard';
+        var logDiv = data.user.divisi;
+        var isFieldRole = (logDiv === 'Driver PIF' || logDiv === 'Driver' || logDiv === 'Kurir PIF' || logDiv === 'Kurir' || logDiv === 'Admin Delivery');
+        STATE.currentPage = isFieldRole ? 'tracking-driver' : 'dashboard';
         renderApp();
         loadActivePageData(true);
         startAutoSyncLoop();
@@ -780,7 +784,7 @@ function renderDashboardView() {
 
   var quickCta = isBackOffice
     ? '<button type="button" class="btn btn-primary btn-sm" onclick="navigateTo(\'orders\')">' + ICONS.plus + '<span>Input DO Baru</span></button>'
-    : '<button type="button" class="btn btn-primary btn-sm" onclick="navigateTo(\'tracking-driver\')">' + ICONS.truck + '<span>' + (user.divisi === 'Kurir' ? 'Buka Tracking Kurir' : 'Buka Tracking Driver') + '</span></button>';
+    : '<button type="button" class="btn btn-primary btn-sm" onclick="navigateTo(\'tracking-driver\')">' + ICONS.truck + '<span>' + ((user.divisi === 'Kurir' || user.divisi === 'Kurir PIF') ? 'Buka Tracking Kurir' : 'Buka Tracking Driver') + '</span></button>';
 
   return (
     '<div class="page-header">' +
@@ -922,7 +926,10 @@ function refreshViaFilterDropdownInDom_() {
 function renderOrdersFilterBar(isMonitor) {
   var f = STATE.orders.filters;
   var driverOpts = '<option value="">Semua Driver / Kurir</option>';
-  var drivers = STATE.dropdowns.drivers || [];
+  var rawDrivers = STATE.dropdowns.drivers || [];
+  var drivers = rawDrivers.filter(function (d) {
+    return d.divisi !== 'Back Office' && d.divisi !== 'Admin Delivery';
+  });
   for (var i = 0; i < drivers.length; i++) {
     var dRole = drivers[i].divisi ? ' (' + escapeHtml(drivers[i].divisi) + ')' : '';
     driverOpts += '<option value="' + escapeHtml(drivers[i].idKaryawan) + '" ' + (f.driverId === drivers[i].idKaryawan ? 'selected' : '') + '>' + escapeHtml(drivers[i].namaKaryawan) + dRole + '</option>';
@@ -1192,11 +1199,14 @@ function buildOrderMobilOptionsHtml(preSelectedMobilId) {
 }
 
 function renderOrderPersonnelOptionsHtml(selectedVia, currentDriverId) {
-  var drivers = STATE.dropdowns.drivers || [];
+  var rawDrivers = STATE.dropdowns.drivers || [];
+  var drivers = rawDrivers.filter(function (d) {
+    return d.divisi !== 'Back Office' && d.divisi !== 'Admin Delivery';
+  });
   var filtered = [];
   for (var i = 0; i < drivers.length; i++) {
     var d = drivers[i];
-    if (d.divisi === 'Driver' || d.divisi === 'Kurir') {
+    if (d.divisi === 'Driver PIF' || d.divisi === 'Driver' || d.divisi === 'Kurir PIF' || d.divisi === 'Kurir') {
       filtered.push(d);
     }
   }
@@ -2653,9 +2663,9 @@ function renderKaryawanView() {
         ? '<span class="badge badge-info">Back Office</span>'
         : (k.divisi === 'Admin Delivery'
             ? '<span class="badge badge-primary">Admin Delivery</span>'
-            : (k.divisi === 'Kurir'
-                ? '<span class="badge badge-kurir">Kurir</span>'
-                : '<span class="badge badge-jalan">Driver</span>'));
+            : ((k.divisi === 'Kurir PIF' || k.divisi === 'Kurir')
+                ? '<span class="badge badge-kurir">' + escapeHtml(k.divisi === 'Kurir' ? 'Kurir' : 'Kurir PIF') + '</span>'
+                : '<span class="badge badge-driver">' + escapeHtml(k.divisi === 'Driver' ? 'Driver' : 'Driver PIF') + '</span>'));
       var badgeStatus = k.status === 'Aktif' ? '<span class="badge badge-selesai">Aktif</span>' : '<span class="badge badge-gagal">Nonaktif</span>';
 
       rowsHtml +=
@@ -2674,7 +2684,7 @@ function renderKaryawanView() {
     '<div class="page-header">' +
       '<div>' +
         '<h2 class="page-title">Master Karyawan</h2>' +
-        '<p class="page-subtitle">Kelola data karyawan beserta akun login divisi Back Office, Driver, Kurir, dan Admin Delivery</p>' +
+        '<p class="page-subtitle">Kelola data karyawan beserta akun login divisi Back Office, Driver PIF, Kurir PIF, dan Admin Delivery</p>' +
       '</div>' +
       '<div class="header-actions">' +
         renderSyncStatusBadge() +
@@ -2684,7 +2694,7 @@ function renderKaryawanView() {
     '<div class="card" style="margin-bottom:14px">' +
       '<div class="filter-bar" style="margin-bottom:0">' +
         '<div class="form-group"><label class="form-label">Cari Karyawan</label><input id="kry-search" class="form-control" type="text" value="' + escapeHtml(f.search) + '" placeholder="Nama, ID, username..." onkeydown="if(event.key===\'Enter\'){event.preventDefault();applyKaryawanFilter();}" /></div>' +
-        '<div class="form-group"><label class="form-label">Divisi</label><select id="kry-divisi" class="form-control"><option value="">Semua Divisi</option><option value="Back Office" ' + (f.divisi === 'Back Office' ? 'selected' : '') + '>Back Office</option><option value="Driver" ' + (f.divisi === 'Driver' ? 'selected' : '') + '>Driver</option><option value="Kurir" ' + (f.divisi === 'Kurir' ? 'selected' : '') + '>Kurir</option><option value="Admin Delivery" ' + (f.divisi === 'Admin Delivery' ? 'selected' : '') + '>Admin Delivery</option></select></div>' +
+        '<div class="form-group"><label class="form-label">Divisi</label><select id="kry-divisi" class="form-control"><option value="">Semua Divisi</option><option value="Back Office" ' + (f.divisi === 'Back Office' ? 'selected' : '') + '>Back Office</option><option value="Admin Delivery" ' + (f.divisi === 'Admin Delivery' ? 'selected' : '') + '>Admin Delivery</option><option value="Driver PIF" ' + (f.divisi === 'Driver PIF' || f.divisi === 'Driver' ? 'selected' : '') + '>Driver PIF</option><option value="Kurir PIF" ' + (f.divisi === 'Kurir PIF' || f.divisi === 'Kurir' ? 'selected' : '') + '>Kurir PIF</option></select></div>' +
         '<div class="form-group"><label class="form-label">Status</label><select id="kry-status" class="form-control"><option value="">Semua</option><option value="Aktif" ' + (f.status === 'Aktif' ? 'selected' : '') + '>Aktif</option><option value="Nonaktif" ' + (f.status === 'Nonaktif' ? 'selected' : '') + '>Nonaktif</option></select></div>' +
         '<div class="form-group" style="display:flex;gap:6px">' +
           '<button type="button" class="btn btn-navy" onclick="applyKaryawanFilter()">Filter</button>' +
@@ -2710,7 +2720,7 @@ function openKaryawanModal(idKaryawan) {
     }
   }
   var isEdit = Boolean(item);
-  var curDivisi = item ? item.divisi : 'Driver';
+  var curDivisi = item ? item.divisi : 'Driver PIF';
 
   var html =
     '<div class="modal-header"><h3 class="modal-title">' + (isEdit ? 'Ubah Data Karyawan' : 'Tambah Karyawan Baru') + '</h3><button type="button" class="modal-close" onclick="closeModal()">' + ICONS.x + '</button></div>' +
@@ -2718,7 +2728,7 @@ function openKaryawanModal(idKaryawan) {
       '<div class="modal-body">' +
         '<div class="form-grid-2">' +
           '<div class="form-group"><label class="form-label">Nama Lengkap <span class="req">*</span></label><input id="kf-nama" class="form-control" type="text" value="' + escapeHtml(item ? item.namaKaryawan : '') + '" required /></div>' +
-          '<div class="form-group"><label class="form-label">Divisi <span class="req">*</span></label><select id="kf-divisi" class="form-control" required><option value="Driver" ' + (curDivisi === 'Driver' ? 'selected' : '') + '>Driver</option><option value="Kurir" ' + (curDivisi === 'Kurir' ? 'selected' : '') + '>Kurir</option><option value="Back Office" ' + (curDivisi === 'Back Office' ? 'selected' : '') + '>Back Office</option><option value="Admin Delivery" ' + (curDivisi === 'Admin Delivery' ? 'selected' : '') + '>Admin Delivery</option></select></div>' +
+          '<div class="form-group"><label class="form-label">Divisi <span class="req">*</span></label><select id="kf-divisi" class="form-control" required><option value="Driver PIF" ' + (curDivisi === 'Driver PIF' || curDivisi === 'Driver' ? 'selected' : '') + '>Driver PIF</option><option value="Kurir PIF" ' + (curDivisi === 'Kurir PIF' || curDivisi === 'Kurir' ? 'selected' : '') + '>Kurir PIF</option><option value="Back Office" ' + (curDivisi === 'Back Office' ? 'selected' : '') + '>Back Office</option><option value="Admin Delivery" ' + (curDivisi === 'Admin Delivery' ? 'selected' : '') + '>Admin Delivery</option></select></div>' +
         '</div>' +
         '<div class="form-grid-2">' +
           '<div class="form-group"><label class="form-label">No. WhatsApp</label><input id="kf-wa" class="form-control" type="text" value="' + escapeHtml(item ? item.noWhatsApp : '') + '" placeholder="0812xxxxxxxx" /></div>' +
@@ -3627,7 +3637,7 @@ function resetReportFilter() {
 }
 
 function resetLaporanAktivitasFilter() {
-  var isFieldUser = STATE.session && STATE.session.user && (STATE.session.user.divisi === 'Driver' || STATE.session.user.divisi === 'Kurir');
+  var isFieldUser = STATE.session && STATE.session.user && (STATE.session.user.divisi === 'Driver PIF' || STATE.session.user.divisi === 'Driver' || STATE.session.user.divisi === 'Kurir PIF' || STATE.session.user.divisi === 'Kurir');
   STATE.laporanAktivitas.filters = {
     dateFrom: '',
     dateTo: '',
@@ -3661,7 +3671,10 @@ function renderReportView() {
 function renderReportDeliveryOrderContent_() {
   var f = STATE.report.filters;
   var s = STATE.report.summary;
-  var drivers = STATE.dropdowns.drivers || [];
+  var rawDrivers = STATE.dropdowns.drivers || [];
+  var drivers = rawDrivers.filter(function (d) {
+    return d.divisi !== 'Back Office' && d.divisi !== 'Admin Delivery';
+  });
   var customers = STATE.dropdowns.customers || [];
 
   var drvOpts = '<option value="">Semua Driver / Kurir</option>';
@@ -4508,9 +4521,12 @@ function renderLaporanAktivitasContent_() {
   var f = STATE.laporanAktivitas.filters;
   var s = STATE.laporanAktivitas.summary || {};
   var user = STATE.session.user;
-  var isDriver = user.divisi === 'Driver' || user.divisi === 'Kurir';
+  var isDriver = user.divisi === 'Driver PIF' || user.divisi === 'Driver' || user.divisi === 'Kurir PIF' || user.divisi === 'Kurir';
 
-  var drivers = (STATE.dropdowns && STATE.dropdowns.drivers) || [];
+  var rawDrivers = (STATE.dropdowns && STATE.dropdowns.drivers) || [];
+  var drivers = rawDrivers.filter(function (d) {
+    return d.divisi !== 'Back Office' && d.divisi !== 'Admin Delivery';
+  });
   var mobils = (STATE.dropdowns && STATE.dropdowns.mobils) || [];
 
   // Dropdown Driver Options
