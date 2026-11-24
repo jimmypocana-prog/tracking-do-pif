@@ -24,9 +24,11 @@ function exportReportToPdf(items, summary, filters) {
     doc.text('TRACKING DELIVERY ORDER - PIF | LAPORAN PENGIRIMAN', 12, 10);
     doc.setFontSize(9);
     doc.setFont(undefined, 'normal');
-    var viaSubText = (filters && filters.via) ? '   |   VIA: ' + filters.via : '   |   VIA: Semua';
-    var drvSubText = (filters && filters.driverName) ? '   |   Driver/Kurir: ' + filters.driverName : '';
-    doc.text('Periode: ' + periodText + '   |   Dicetak: ' + printedAt + viaSubText + drvSubText, 12, 16.5);
+    var viaSubText = '   |   VIA: ' + ((filters && filters.via) ? filters.via : 'Semua VIA');
+    var drvSubText = (filters && filters.driverName) ? '   |   Petugas: ' + filters.driverName : '   |   Petugas: Semua';
+    var cstSubText = (filters && filters.customerName) ? '   |   Cust: ' + filters.customerName : '';
+    var stSubText = (filters && filters.status) ? '   |   Status: ' + filters.status : '';
+    doc.text('Periode: ' + periodText + viaSubText + drvSubText + cstSubText + stSubText + '   |   Dicetak: ' + printedAt, 12, 16.5);
 
     doc.setTextColor(15, 23, 42);
     doc.setFontSize(9);
@@ -177,12 +179,14 @@ function exportReportToPdf(items, summary, filters) {
       '<td>' + escapeHtml(row.status === 'Gagal Kirim' ? row.alasanGagalKirim : (row.keterangan || '-')) + '</td>' +
       '</tr>';
   }
+  var viaPrintText = ' | Pengiriman VIA: ' + ((filters && filters.via) ? escapeHtml(filters.via) : 'Semua VIA');
+  var drvPrintText = (filters && filters.driverName) ? ' | Petugas: ' + escapeHtml(filters.driverName) : '';
+  var cstPrintText = (filters && filters.customerName) ? ' | Customer: ' + escapeHtml(filters.customerName) : '';
+  var stPrintText = (filters && filters.status) ? ' | Status: ' + escapeHtml(filters.status) : '';
   var htmlDoc = '<!DOCTYPE html><html><head><meta charset="utf-8"><title>Laporan Delivery PIF</title>' +
     '<style>body{font-family:sans-serif;font-size:11px;padding:16px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #cbd5e1;padding:6px;text-align:left}th{background:#0f172a;color:#fff}</style>' +
-    var viaPrintText = (filters && filters.via) ? ' | Pengiriman VIA: ' + escapeHtml(filters.via) : ' | Pengiriman VIA: Semua VIA';
-    var drvPrintText = (filters && filters.driverName) ? ' | Driver/Kurir: ' + escapeHtml(filters.driverName) : '';
     '</head><body><h2>Laporan Tracking Delivery Order - PIF</h2>' +
-    '<p>Periode: ' + escapeHtml(periodText) + ' | Dicetak: ' + escapeHtml(printedAt) + viaPrintText + drvPrintText + '</p>' +
+    '<p>Periode: ' + escapeHtml(periodText) + ' | Dicetak: ' + escapeHtml(printedAt) + viaPrintText + drvPrintText + cstPrintText + stPrintText + '</p>' +
     '<table><thead><tr><th>No</th><th>ID Tracking</th><th>Tgl DO</th><th>Nomor DO</th><th>VIA</th><th>Customer</th><th>Driver / Kurir</th><th>Mobil</th><th>Status</th><th>Penerima</th><th>Keterangan / Alasan Gagal</th></tr></thead>' +
     '<tbody>' + rowsHtml + '</tbody></table></body></html>';
   win.document.write(htmlDoc);
@@ -253,8 +257,11 @@ function exportReportToExcel(items, summary, filters) {
     var summaryRows = [
       { 'Metrik': 'Program', 'Nilai': 'Tracking Delivery Order - PIF' },
       { 'Metrik': 'Periode Filter', 'Nilai': (filters.dateFrom || 'Semua') + ' s/d ' + (filters.dateTo || 'Semua') },
+      { 'Metrik': 'Filter Status', 'Nilai': (filters && filters.status) ? filters.status : 'Semua Status' },
       { 'Metrik': 'Filter Pengiriman VIA', 'Nilai': (filters && filters.via) ? filters.via : 'Semua VIA' },
       { 'Metrik': 'Filter Driver / Kurir', 'Nilai': (filters && filters.driverName) ? filters.driverName : 'Semua Driver / Kurir' },
+      { 'Metrik': 'Filter Customer', 'Nilai': (filters && filters.customerName) ? filters.customerName : 'Semua Customer' },
+      { 'Metrik': 'Filter Pencarian Teks', 'Nilai': (filters && filters.search) ? filters.search : '-' },
       { 'Metrik': 'Total Delivery Order', 'Nilai': summary.total || 0 },
       { 'Metrik': 'Siap Pick Up', 'Nilai': summary.siapPickUp || 0 },
       { 'Metrik': 'Dalam Proses (Jalan / Check-In)', 'Nilai': summary.dalamProses || 0 },
@@ -338,9 +345,10 @@ function exportAktivitasToPdf(items, summary, filters) {
     doc.text('TRACKING DELIVERY ORDER - PIF | LAPORAN AKTIVITAS & BBM DRIVER', 12, 10);
     doc.setFontSize(9);
     doc.setFont(undefined, 'normal');
-    var viaSubText = (filters && filters.via) ? '   |   VIA: ' + filters.via : '';
-    var drvSubText = (filters && filters.driverName) ? '   |   Driver/Kurir: ' + filters.driverName : '';
-    doc.text('Periode: ' + periodText + '   |   Dicetak: ' + printedAt + viaSubText + drvSubText, 12, 16.5);
+    var drvSubText = (filters && filters.driverName) ? '   |   Petugas: ' + filters.driverName : '   |   Petugas: Semua';
+    var mblSubText = (filters && filters.platMobilText) ? '   |   Armada: ' + filters.platMobilText : '';
+    var stSubText = (filters && filters.statusText) ? '   |   Status: ' + filters.statusText : '';
+    doc.text('Periode: ' + periodText + drvSubText + mblSubText + stSubText + '   |   Dicetak: ' + printedAt, 12, 16.5);
 
     doc.setTextColor(15, 23, 42);
     doc.setFontSize(8.5);
@@ -536,6 +544,9 @@ function exportAktivitasToExcel(items, summary, filters) {
       { 'Metrik': 'Laporan', 'Nilai': 'Aktivitas Harian Driver, KM & BBM' },
       { 'Metrik': 'Periode Filter', 'Nilai': (filters.dateFrom || 'Semua') + ' s/d ' + (filters.dateTo || 'Semua') },
       { 'Metrik': 'Filter Driver / Kurir', 'Nilai': (filters && filters.driverName) ? filters.driverName : 'Semua Driver / Kurir' },
+      { 'Metrik': 'Filter Armada Mobil', 'Nilai': (filters && filters.platMobilText) ? filters.platMobilText : 'Semua Mobil' },
+      { 'Metrik': 'Filter Status Perjalanan', 'Nilai': (filters && filters.statusText) ? filters.statusText : 'Semua Status' },
+      { 'Metrik': 'Filter Pencarian Teks', 'Nilai': (filters && filters.search) ? filters.search : '-' },
       { 'Metrik': 'Total Perjalanan', 'Nilai': summary.totalPerjalanan || 0 },
       { 'Metrik': 'Total KM Tempuh Armada', 'Nilai': (summary.totalKmTempuh || 0) + ' km' },
       { 'Metrik': 'Total Pengeluaran BBM (Rp)', 'Nilai': summary.totalBiayaBbm || 0 },

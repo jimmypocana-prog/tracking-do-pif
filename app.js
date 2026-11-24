@@ -886,19 +886,31 @@ function fetchOrdersData(forceRefresh, fetchOpts) {
 }
 
 function buildViaFilterOptionsHtml(selectedVia) {
-  var activeVias = (STATE.dropdowns && STATE.dropdowns.vias && STATE.dropdowns.vias.length)
+  var rawVias = (STATE.dropdowns && STATE.dropdowns.vias && STATE.dropdowns.vias.length)
     ? STATE.dropdowns.vias
-    : [{ namaVia: 'Driver' }, { namaVia: 'Kurir' }, { namaVia: 'Online' }];
+    : [];
+
+  var viaNames = ['Driver PIF', 'Kurir PIF'];
+  for (var i = 0; i < rawVias.length; i++) {
+    var nm = String(rawVias[i].namaVia || '').trim();
+    if (nm === 'Driver' || nm === 'Driver PIF' || nm === 'Kurir' || nm === 'Kurir PIF') {
+      continue;
+    }
+    if (nm && viaNames.indexOf(nm) === -1) {
+      viaNames.push(nm);
+    }
+  }
 
   var html = '<option value="">Semua VIA</option>';
   var matched = false;
 
-  for (var i = 0; i < activeVias.length; i++) {
-    var vName = activeVias[i].namaVia;
-    if (vName === selectedVia) {
+  for (var j = 0; j < viaNames.length; j++) {
+    var vName = viaNames[j];
+    var isSel = (selectedVia === vName) || (selectedVia === 'Driver' && vName === 'Driver PIF') || (selectedVia === 'Kurir' && vName === 'Kurir PIF');
+    if (isSel) {
       matched = true;
     }
-    html += '<option value="' + escapeHtml(vName) + '" ' + (selectedVia === vName ? 'selected' : '') + '>' + escapeHtml(vName) + '</option>';
+    html += '<option value="' + escapeHtml(vName) + '" ' + (isSel ? 'selected' : '') + '>' + escapeHtml(vName) + '</option>';
   }
 
   if (!matched && selectedVia) {
@@ -1203,19 +1215,34 @@ function renderOrderPersonnelOptionsHtml(selectedVia, currentDriverId) {
   var drivers = rawDrivers.filter(function (d) {
     return d.divisi !== 'Back Office' && d.divisi !== 'Admin Delivery';
   });
+
+  var isDriverVia = (selectedVia === 'Driver PIF' || selectedVia === 'Driver');
+  var isKurirVia = (selectedVia === 'Kurir PIF' || selectedVia === 'Kurir');
+
   var filtered = [];
   for (var i = 0; i < drivers.length; i++) {
     var d = drivers[i];
-    if (d.divisi === 'Driver PIF' || d.divisi === 'Driver' || d.divisi === 'Kurir PIF' || d.divisi === 'Kurir') {
-      filtered.push(d);
+    if (isDriverVia) {
+      if (d.divisi === 'Driver PIF' || d.divisi === 'Driver') {
+        filtered.push(d);
+      }
+    } else if (isKurirVia) {
+      if (d.divisi === 'Kurir PIF' || d.divisi === 'Kurir') {
+        filtered.push(d);
+      }
+    } else {
+      if (d.divisi === 'Driver PIF' || d.divisi === 'Driver' || d.divisi === 'Kurir PIF' || d.divisi === 'Kurir') {
+        filtered.push(d);
+      }
     }
   }
-  var list = filtered.length ? filtered : drivers;
-  var placeholder = (selectedVia === 'Kurir') ? '-- Pilih Kurir / Driver --' : '-- Pilih Driver / Kurir --';
+
+  var list = filtered;
+  var placeholder = isKurirVia
+    ? '-- Pilih Kurir Bertugas --'
+    : (isDriverVia ? '-- Pilih Driver Bertugas --' : '-- Pilih Petugas Bertugas --');
+
   var html = '<option value="">' + placeholder + '</option>';
-  if (selectedVia === 'Kurir') {
-    html += '<option value="KURIR" ' + (currentDriverId === 'KURIR' ? 'selected' : '') + '>Kurir Ekspedisi (Luar)</option>';
-  }
   for (var j = 0; j < list.length; j++) {
     var selD = (currentDriverId && currentDriverId === list[j].idKaryawan) ? 'selected' : '';
     html += '<option value="' + escapeHtml(list[j].idKaryawan) + '" ' + selD + '>' +
@@ -1232,10 +1259,13 @@ function handleOrderViaChange(selectedVia, keepDriverId) {
   var mobilLabel = document.getElementById('ord-mobil-label');
   var mobilSel = document.getElementById('ord-mobil');
 
-  if (selectedVia === 'Driver' || selectedVia === 'Kurir') {
+  var isDriverVia = (selectedVia === 'Driver PIF' || selectedVia === 'Driver');
+  var isKurirVia = (selectedVia === 'Kurir PIF' || selectedVia === 'Kurir');
+
+  if (isDriverVia || isKurirVia) {
     if (drvGroup) drvGroup.style.display = 'block';
     if (drvLabel) {
-      drvLabel.innerHTML = (selectedVia === 'Kurir')
+      drvLabel.innerHTML = isKurirVia
         ? 'Kurir Bertugas <span class="req">*</span>'
         : 'Driver Bertugas <span class="req">*</span>';
     }
@@ -1245,10 +1275,10 @@ function handleOrderViaChange(selectedVia, keepDriverId) {
       drvSel.innerHTML = renderOrderPersonnelOptionsHtml(selectedVia, curDrv);
     }
     if (mobilLabel) {
-      mobilLabel.innerHTML = (selectedVia === 'Kurir') ? 'Plat Mobil (Opsional)' : 'Plat Mobil <span class="req">*</span>';
+      mobilLabel.innerHTML = isDriverVia ? 'Plat Mobil <span class="req">*</span>' : 'Plat Mobil (Opsional)';
     }
     if (mobilSel) {
-      mobilSel.required = (selectedVia === 'Driver');
+      mobilSel.required = isDriverVia;
     }
   } else {
     // Online atau VIA lainnya: kolom petugas dan barisnya dihilangkan total
@@ -1283,7 +1313,9 @@ function openOrderFormModal(existingIdTracking, isRedelivery) {
     ? 'Kirim Ulang / Jadwalkan Ulang Delivery Order'
     : (isEdit ? 'Ubah Delivery Order' : 'Input Delivery Order Baru - PIF');
 
-  var curVia = existing ? (existing.via || 'Driver') : 'Driver';
+  var curVia = existing ? (existing.via || 'Driver PIF') : 'Driver PIF';
+  if (curVia === 'Driver') curVia = 'Driver PIF';
+  if (curVia === 'Kurir') curVia = 'Kurir PIF';
   var curDriverId = (!isRedelivery && existing) ? (existing.idDriver || '') : '';
 
   var custOpts = '<option value="">-- Pilih Customer --</option>';
@@ -1293,8 +1325,9 @@ function openOrderFormModal(existingIdTracking, isRedelivery) {
     custOpts += '<option value="' + escapeHtml(customers[c].idCustomer) + '" ' + selC + '>' + escapeHtml(customers[c].namaCustomer) + '</option>';
   }
 
-  var isPersonnelVia = (curVia === 'Driver' || curVia === 'Kurir');
-  var isDriverVia = (curVia === 'Driver');
+  var isDriverVia = (curVia === 'Driver PIF' || curVia === 'Driver');
+  var isKurirVia = (curVia === 'Kurir PIF' || curVia === 'Kurir');
+  var isPersonnelVia = isDriverVia || isKurirVia;
   var drvOpts = isPersonnelVia ? renderOrderPersonnelOptionsHtml(curVia, curDriverId) : '';
 
   var preSelectedMobilId = existing ? (existing.idMobil || '') : '';
@@ -1312,21 +1345,28 @@ function openOrderFormModal(existingIdTracking, isRedelivery) {
     ? '<div class="alert-box alert-warning" style="margin-bottom:14px;border-left:4px solid var(--rose)">' +
         '<div style="font-weight:700;margin-bottom:4px;font-size:14px">Penjadwalan Ulang DO Gagal Kirim</div>' +
         '<div>Nomor DO: <strong>' + escapeHtml(existing.nomorDO) + '</strong></div>' +
-        '<div>Pengiriman Sebelumnya: <strong>' + escapeHtml(existing.namaDriver || '-') + '</strong> (Via ' + escapeHtml(existing.via || 'Driver') + ')</div>' +
+        '<div>Pengiriman Sebelumnya: <strong>' + escapeHtml(existing.namaDriver || '-') + '</strong> (Via ' + escapeHtml(existing.via || 'Driver PIF') + ')</div>' +
         '<div style="margin-top:6px;padding:6px 8px;background:#fff1f2;border-radius:6px"><strong>Keterangan Gagal Kirim:</strong> <span style="color:var(--rose)">' + escapeHtml(existing.alasanGagalKirim || '-') + '</span></div>' +
       '</div>'
     : '';
 
   // Dropdown via dinamis dari Master VIA
-  var viaOpts = '';
-  var activeVias = (STATE.dropdowns && STATE.dropdowns.vias && STATE.dropdowns.vias.length)
+  var rawVias = (STATE.dropdowns && STATE.dropdowns.vias && STATE.dropdowns.vias.length)
     ? STATE.dropdowns.vias
-    : [{ namaVia: 'Driver' }, { namaVia: 'Kurir' }, { namaVia: 'Online' }];
+    : [];
+  var viaNames = ['Driver PIF', 'Kurir PIF'];
+  for (var vi = 0; vi < rawVias.length; vi++) {
+    var nm = String(rawVias[vi].namaVia || '').trim();
+    if (nm === 'Driver' || nm === 'Driver PIF' || nm === 'Kurir' || nm === 'Kurir PIF') continue;
+    if (nm && viaNames.indexOf(nm) === -1) viaNames.push(nm);
+  }
+  var viaOpts = '';
   var hasCurVia = false;
-  for (var vi = 0; vi < activeVias.length; vi++) {
-    var vName = activeVias[vi].namaVia;
-    if (vName === curVia) hasCurVia = true;
-    viaOpts += '<option value="' + escapeHtml(vName) + '" ' + (curVia === vName ? 'selected' : '') + '>' + escapeHtml(vName) + '</option>';
+  for (var vi = 0; vi < viaNames.length; vi++) {
+    var vName = viaNames[vi];
+    var isSel = (curVia === vName);
+    if (isSel) hasCurVia = true;
+    viaOpts += '<option value="' + escapeHtml(vName) + '" ' + (isSel ? 'selected' : '') + '>' + escapeHtml(vName) + '</option>';
   }
   if (!hasCurVia && curVia) {
     viaOpts = '<option value="' + escapeHtml(curVia) + '" selected>' + escapeHtml(curVia) + '</option>' + viaOpts;
@@ -1389,7 +1429,7 @@ function openOrderFormModal(existingIdTracking, isRedelivery) {
           '</div>' +
         '</div>' +
         '<div id="ord-driver-group" class="form-group" style="display:' + (isPersonnelVia ? 'block' : 'none') + '">' +
-          '<label id="ord-driver-label" class="form-label" for="ord-driver">' + (curVia === 'Kurir' ? 'Kurir Bertugas <span class="req">*</span>' : 'Driver Bertugas <span class="req">*</span>') + '</label>' +
+          '<label id="ord-driver-label" class="form-label" for="ord-driver">' + (isKurirVia ? 'Kurir Bertugas <span class="req">*</span>' : 'Driver Bertugas <span class="req">*</span>') + '</label>' +
           '<select id="ord-driver" class="form-control" ' + (isPersonnelVia ? 'required' : '') + '>' + drvOpts + '</select>' +
         '</div>' +
         '<div class="form-grid-2">' +
@@ -1420,8 +1460,9 @@ function openOrderFormModal(existingIdTracking, isRedelivery) {
       var mobilSel = document.getElementById('ord-mobil');
       if (mobilSel && !mobilSel.value) {
         var refreshedMobil = buildOrderMobilOptionsHtml(preSelectedMobilId);
-        var viaVal = document.getElementById('ord-via') ? document.getElementById('ord-via').value : 'Driver';
-        mobilSel.innerHTML = '<option value="">' + (viaVal === 'Driver' ? '-- Pilih Plat Mobil --' : '-- Tanpa Kendaraan / Opsional --') + '</option>' +
+        var viaVal = document.getElementById('ord-via') ? document.getElementById('ord-via').value : 'Driver PIF';
+        var isDrvVal = (viaVal === 'Driver PIF' || viaVal === 'Driver');
+        mobilSel.innerHTML = '<option value="">' + (isDrvVal ? '-- Pilih Plat Mobil --' : '-- Tanpa Kendaraan / Opsional --') + '</option>' +
           (refreshedMobil.html.replace('<option value="">-- Pilih Plat Mobil --</option>', ''));
         handleOrderMobilChange(mobilSel.value);
       }
@@ -1436,8 +1477,8 @@ function openOrderFormModal(existingIdTracking, isRedelivery) {
       }
       var drvSel = document.getElementById('ord-driver');
       if (drvSel && !drvSel.value && STATE.dropdowns.drivers.length) {
-        var viaV = document.getElementById('ord-via') ? document.getElementById('ord-via').value : 'Driver';
-        if (viaV === 'Driver') {
+        var viaV = document.getElementById('ord-via') ? document.getElementById('ord-via').value : 'Driver PIF';
+        if (viaV === 'Driver PIF' || viaV === 'Driver' || viaV === 'Kurir PIF' || viaV === 'Kurir') {
           drvSel.innerHTML = renderOrderPersonnelOptionsHtml(viaV, curDriverId);
         }
       }
@@ -1471,10 +1512,10 @@ function openOrderFormModal(existingIdTracking, isRedelivery) {
   document.getElementById('order-form').addEventListener('submit', function (ev) {
     ev.preventDefault();
     var btn = document.getElementById('ord-save-btn');
-    var selectedVia = document.getElementById('ord-via') ? document.getElementById('ord-via').value : 'Driver';
+    var selectedVia = document.getElementById('ord-via') ? document.getElementById('ord-via').value : 'Driver PIF';
     var driverVal = '';
 
-    if (selectedVia === 'Driver') {
+    if (selectedVia === 'Driver PIF' || selectedVia === 'Driver') {
       driverVal = document.getElementById('ord-driver').value;
       if (!driverVal) {
         showToast('Driver bertugas wajib dipilih.', 'warning');
@@ -1482,11 +1523,15 @@ function openOrderFormModal(existingIdTracking, isRedelivery) {
       }
       var mobilVal = document.getElementById('ord-mobil').value || '';
       if (!mobilVal) {
-        showToast('Plat Mobil wajib dipilih dari Master Mobil untuk pengiriman via Driver.', 'warning');
+        showToast('Plat Mobil wajib dipilih dari Master Mobil untuk pengiriman via Driver PIF.', 'warning');
         return;
       }
-    } else if (selectedVia === 'Kurir') {
-      driverVal = 'KURIR';
+    } else if (selectedVia === 'Kurir PIF' || selectedVia === 'Kurir') {
+      driverVal = document.getElementById('ord-driver').value;
+      if (!driverVal) {
+        showToast('Kurir bertugas wajib dipilih.', 'warning');
+        return;
+      }
     } else if (selectedVia === 'Online') {
       driverVal = 'ONLINE';
     } else {
@@ -3596,6 +3641,18 @@ function triggerExportReport(formatType) {
   if (drvEl && drvEl.selectedIndex > 0) {
     f.driverName = drvEl.options[drvEl.selectedIndex].text;
   }
+  var cstEl = document.getElementById('rep-customer');
+  if (cstEl && cstEl.selectedIndex > 0) {
+    f.customerName = cstEl.options[cstEl.selectedIndex].text;
+  }
+  var viaEl = document.getElementById('rep-via');
+  if (viaEl && viaEl.selectedIndex > 0) {
+    f.viaText = viaEl.options[viaEl.selectedIndex].text;
+  }
+  var stEl = document.getElementById('rep-status');
+  if (stEl && stEl.selectedIndex > 0) {
+    f.statusText = stEl.options[stEl.selectedIndex].text;
+  }
   showToast('Menyiapkan seluruh data untuk export ' + formatType.toUpperCase() + '...', 'info');
   callGasApi('getDeliveryReport', {
     dateFrom: f.dateFrom,
@@ -4495,6 +4552,14 @@ function triggerExportAktivitas(formatType) {
   var drvEl = document.getElementById('akt-rep-driver');
   if (drvEl && drvEl.selectedIndex > 0) {
     f.driverName = drvEl.options[drvEl.selectedIndex].text;
+  }
+  var mblEl = document.getElementById('akt-rep-mobil');
+  if (mblEl && mblEl.selectedIndex > 0) {
+    f.platMobilText = mblEl.options[mblEl.selectedIndex].text;
+  }
+  var stEl = document.getElementById('akt-rep-status');
+  if (stEl && stEl.selectedIndex > 0) {
+    f.statusText = stEl.options[stEl.selectedIndex].text;
   }
   showToast('Menyiapkan seluruh data laporan aktivitas untuk export ' + formatType.toUpperCase() + '...', 'info');
 
