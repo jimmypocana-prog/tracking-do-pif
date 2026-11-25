@@ -558,6 +558,10 @@ function renderLoginView() {
           '</div>' +
         '</div>' +
         apiNotice +
+        '<div class="alert-box alert-info" style="display:flex;align-items:center;gap:8px;padding:8px 12px;font-size:12px;margin-bottom:2px">' +
+          ICONS.mapPin +
+          '<span><strong>GPS Wajib Aktif:</strong> Aplikasi mewajibkan GPS aktif untuk pelacakan pengiriman.</span>' +
+        '</div>' +
         '<form id="login-form" style="display:flex;flex-direction:column;gap:13px">' +
           '<div class="form-group">' +
             '<label class="form-label" for="login-username">Username <span class="req">*</span></label>' +
@@ -579,6 +583,18 @@ function bindLoginEvents() {
   if (!form) {
     return;
   }
+
+  var passInput = document.getElementById('login-password');
+  if (passInput) {
+    passInput.addEventListener('focus', function () {
+      if (navigator.geolocation && !window.__gpsLoginPrompted) {
+        window.__gpsLoginPrompted = true;
+        showToast('Aplikasi mewajibkan akses GPS. Mengaktifkan sensor lokasi...', 'info');
+        requestMandatoryGps().catch(function () {});
+      }
+    });
+  }
+
   form.addEventListener('submit', function (ev) {
     ev.preventDefault();
     var username = document.getElementById('login-username').value.trim();
@@ -589,6 +605,11 @@ function bindLoginEvents() {
       showToast('Isi URL Server Backend GAS terlebih dahulu.', 'warning');
       openApiSettingsModal();
       return;
+    }
+
+    if (navigator.geolocation) {
+      showToast('Aplikasi mewajibkan akses GPS aktif. Mengaktifkan sensor lokasi...', 'info');
+      requestMandatoryGps().catch(function () {});
     }
 
     btn.disabled = true;
@@ -608,6 +629,12 @@ function bindLoginEvents() {
         loadActivePageData(true);
         startAutoSyncLoop();
         showToast('Selamat datang, ' + data.user.namaKaryawan + '!', 'success');
+
+        if (isFieldRole && navigator.geolocation) {
+          requestMandatoryGps().then(function (coords) {
+            console.log('GPS awal terkunci:', coords);
+          }).catch(function () {});
+        }
       })
       .catch(function (err) {
         showToast(err.message, 'error');
@@ -4075,10 +4102,27 @@ function openCheckOutAktivitasModalContent_() {
   STATE.modalGpsLoading = true;
   STATE.modalGpsError = '';
 
+  var userDiv = (STATE.session && STATE.session.user && STATE.session.user.divisi) || '';
+  var isKurirRole = (userDiv === 'Kurir PIF' || userDiv === 'Kurir');
+  var isDriverRole = (userDiv === 'Driver PIF' || userDiv === 'Driver');
+
+  var targetKat = isKurirRole ? 'Motor' : (isDriverRole ? 'Mobil' : '');
+  var labelField = isKurirRole ? 'Pilih Kendaraan / Plat Motor' : (isDriverRole ? 'Pilih Kendaraan / Plat Mobil' : 'Pilih Kendaraan / Plat Armada');
+  var placeholder = isKurirRole ? '-- Pilih Plat Motor --' : (isDriverRole ? '-- Pilih Plat Mobil --' : '-- Pilih Kendaraan / Plat Mobil --');
+  var hintKm = isKurirRole
+    ? 'Ketik angka kilometer yang tertera di speedometer saat motor hendak berangkat.'
+    : 'Ketik angka kilometer yang tertera di speedometer saat mobil hendak berangkat.';
+
   var mobils = (STATE.dropdowns && STATE.dropdowns.mobils) || [];
-  var mobilOpts = '<option value="">-- Pilih Kendaraan / Plat Mobil --</option>';
+  var mobilOpts = '<option value="">' + placeholder + '</option>';
   for (var m = 0; m < mobils.length; m++) {
     var mob = mobils[m];
+    if (targetKat) {
+      var itemKat = mob.jenisKendaraan || (String(mob.jenisMobil || '').toLowerCase().indexOf('motor') !== -1 ? 'Motor' : 'Mobil');
+      if (itemKat !== targetKat) {
+        continue;
+      }
+    }
     var label = mob.platMobil + (mob.jenisMobil ? ' (' + mob.jenisMobil + ')' : '');
     mobilOpts += '<option value="' + escapeHtml(mob.idMobil) + '">' + escapeHtml(label) + '</option>';
   }
@@ -4090,13 +4134,13 @@ function openCheckOutAktivitasModalContent_() {
     '</div>' +
     '<div class="modal-body">' +
       '<div class="form-group">' +
-        '<label class="form-label">Pilih Kendaraan / Plat Mobil <span class="req">*</span></label>' +
+        '<label class="form-label">' + labelField + ' <span class="req">*</span></label>' +
         '<select id="akt-out-mobil" class="form-control">' + mobilOpts + '</select>' +
       '</div>' +
       '<div class="form-group">' +
         '<label class="form-label">Kilometer Awal (Odometer Speedometer) <span class="req">*</span></label>' +
         '<input id="akt-out-km" class="form-control" type="number" min="0" placeholder="Contoh: 125000" />' +
-        '<span class="form-hint">Ketik angka kilometer yang tertera di speedometer saat mobil hendak berangkat.</span>' +
+        '<span class="form-hint">' + hintKm + '</span>' +
       '</div>' +
       renderPhotoUploaderSection('Foto Kilometer Awal (Speedometer)', false) +
       '<div class="form-group">' +
@@ -4123,7 +4167,9 @@ function submitCheckOutAktivitas() {
   var catatan = document.getElementById('akt-out-catatan').value.trim();
 
   if (!idMobil) {
-    showToast('Pilih kendaraan / plat mobil terlebih dahulu.', 'warning');
+    var userDiv = (STATE.session && STATE.session.user && STATE.session.user.divisi) || '';
+    var isKurirRole = (userDiv === 'Kurir PIF' || userDiv === 'Kurir');
+    showToast(isKurirRole ? 'Pilih plat motor terlebih dahulu.' : 'Pilih kendaraan / plat mobil terlebih dahulu.', 'warning');
     return;
   }
   if (!kmVal || isNaN(Number(kmVal)) || Number(kmVal) < 0) {
