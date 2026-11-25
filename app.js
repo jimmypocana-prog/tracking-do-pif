@@ -1194,20 +1194,32 @@ function handleOrderMobilChange(selectedIdMobil) {
   jenisInput.value = foundJenis;
 }
 
-function buildOrderMobilOptionsHtml(preSelectedMobilId) {
+function buildOrderMobilOptionsHtml(preSelectedMobilId, kategoriFilter) {
   var mobils = STATE.dropdowns.mobils || [];
-  var html = '<option value="">-- Pilih Plat Mobil --</option>';
+  var isMotor = (kategoriFilter === 'Motor');
+  var isMobil = (kategoriFilter === 'Mobil');
+  var placeholder = isMotor
+    ? '-- Pilih Plat Motor --'
+    : (isMobil ? '-- Pilih Plat Mobil --' : (kategoriFilter ? '-- Pilih Plat Kendaraan --' : '-- Tanpa Kendaraan / Opsional --'));
+  var html = '<option value="">' + placeholder + '</option>';
   var matched = false;
   var matchedJenis = '';
   for (var m = 0; m < mobils.length; m++) {
-    var isSel = Boolean(preSelectedMobilId && preSelectedMobilId === mobils[m].idMobil);
+    var item = mobils[m];
+    if (kategoriFilter) {
+      var itemKategori = item.jenisKendaraan || (String(item.jenisMobil || '').toLowerCase().indexOf('motor') !== -1 ? 'Motor' : 'Mobil');
+      if (itemKategori !== kategoriFilter) {
+        continue;
+      }
+    }
+    var isSel = Boolean(preSelectedMobilId && preSelectedMobilId === item.idMobil);
     if (isSel) {
       matched = true;
-      matchedJenis = mobils[m].jenisMobil || '';
+      matchedJenis = item.jenisMobil || '';
     }
-    html += '<option value="' + escapeHtml(mobils[m].idMobil) + '" ' + (isSel ? 'selected' : '') + '>' + escapeHtml(mobils[m].platMobil) + '</option>';
+    html += '<option value="' + escapeHtml(item.idMobil) + '" ' + (isSel ? 'selected' : '') + '>' + escapeHtml(item.platMobil) + '</option>';
   }
-  return { html: html, matched: matched, matchedJenis: matchedJenis };
+  return { html: html, matched: matched, matchedJenis: matchedJenis, placeholder: placeholder };
 }
 
 function renderOrderPersonnelOptionsHtml(selectedVia, currentDriverId) {
@@ -1258,6 +1270,7 @@ function handleOrderViaChange(selectedVia, keepDriverId) {
   var drvLabel = document.getElementById('ord-driver-label');
   var mobilLabel = document.getElementById('ord-mobil-label');
   var mobilSel = document.getElementById('ord-mobil');
+  var jenisMobilInput = document.getElementById('ord-jenis-mobil');
 
   var isDriverVia = (selectedVia === 'Driver PIF' || selectedVia === 'Driver');
   var isKurirVia = (selectedVia === 'Kurir PIF' || selectedVia === 'Kurir');
@@ -1275,10 +1288,22 @@ function handleOrderViaChange(selectedVia, keepDriverId) {
       drvSel.innerHTML = renderOrderPersonnelOptionsHtml(selectedVia, curDrv);
     }
     if (mobilLabel) {
-      mobilLabel.innerHTML = isDriverVia ? 'Plat Mobil <span class="req">*</span>' : 'Plat Mobil (Opsional)';
+      mobilLabel.innerHTML = isKurirVia
+        ? 'Plat Motor <span class="req">*</span>'
+        : 'Plat Mobil <span class="req">*</span>';
     }
     if (mobilSel) {
-      mobilSel.required = isDriverVia;
+      mobilSel.required = true;
+      var curMobilId = mobilSel.value;
+      var targetKat = isKurirVia ? 'Motor' : 'Mobil';
+      var res = buildOrderMobilOptionsHtml(curMobilId, targetKat);
+      mobilSel.innerHTML = res.html;
+      if (!res.matched) {
+        mobilSel.value = '';
+        if (jenisMobilInput) jenisMobilInput.value = '';
+      } else {
+        if (jenisMobilInput) jenisMobilInput.value = res.matchedJenis;
+      }
     }
   } else {
     // Online atau VIA lainnya: kolom petugas dan barisnya dihilangkan total
@@ -1293,7 +1318,18 @@ function handleOrderViaChange(selectedVia, keepDriverId) {
       }
     }
     if (mobilLabel) mobilLabel.innerHTML = 'Plat Mobil (Opsional)';
-    if (mobilSel) mobilSel.required = false;
+    if (mobilSel) {
+      mobilSel.required = false;
+      var curMobilId = mobilSel.value;
+      var resAll = buildOrderMobilOptionsHtml(curMobilId, '');
+      mobilSel.innerHTML = resAll.html;
+      if (!resAll.matched) {
+        mobilSel.value = '';
+        if (jenisMobilInput) jenisMobilInput.value = '';
+      } else {
+        if (jenisMobilInput) jenisMobilInput.value = resAll.matchedJenis;
+      }
+    }
   }
 }
 
@@ -1332,7 +1368,8 @@ function openOrderFormModal(existingIdTracking, isRedelivery) {
 
   var preSelectedMobilId = existing ? (existing.idMobil || '') : '';
   var mobils = STATE.dropdowns.mobils || [];
-  var mobilBuilt = buildOrderMobilOptionsHtml(preSelectedMobilId);
+  var initialTargetKat = isDriverVia ? 'Mobil' : (isKurirVia ? 'Motor' : '');
+  var mobilBuilt = buildOrderMobilOptionsHtml(preSelectedMobilId, initialTargetKat);
 
   var mobilNotice = '';
   if (!mobils.length) {
@@ -1434,10 +1471,11 @@ function openOrderFormModal(existingIdTracking, isRedelivery) {
         '</div>' +
         '<div class="form-grid-2">' +
           '<div class="form-group">' +
-            '<label id="ord-mobil-label" class="form-label" for="ord-mobil">Plat Mobil ' + (isDriverVia ? '<span class="req">*</span>' : '(Opsional)') + '</label>' +
-            '<select id="ord-mobil" class="form-control" ' + (isDriverVia ? 'required' : '') + ' onchange="handleOrderMobilChange(this.value)">' +
-              '<option value="">' + (isDriverVia ? '-- Pilih Plat Mobil --' : '-- Tanpa Kendaraan / Opsional --') + '</option>' +
-              (mobilBuilt.html.replace('<option value="">-- Pilih Plat Mobil --</option>', '')) +
+            '<label id="ord-mobil-label" class="form-label" for="ord-mobil">' +
+              (isKurirVia ? 'Plat Motor <span class="req">*</span>' : (isDriverVia ? 'Plat Mobil <span class="req">*</span>' : 'Plat Mobil (Opsional)')) +
+            '</label>' +
+            '<select id="ord-mobil" class="form-control" ' + (isPersonnelVia ? 'required' : '') + ' onchange="handleOrderMobilChange(this.value)">' +
+              mobilBuilt.html +
             '</select>' +
             mobilNotice +
           '</div>' +
@@ -1459,11 +1497,12 @@ function openOrderFormModal(existingIdTracking, isRedelivery) {
     ensureDropdownsLoaded(false, { silent: true }).then(function () {
       var mobilSel = document.getElementById('ord-mobil');
       if (mobilSel && !mobilSel.value) {
-        var refreshedMobil = buildOrderMobilOptionsHtml(preSelectedMobilId);
         var viaVal = document.getElementById('ord-via') ? document.getElementById('ord-via').value : 'Driver PIF';
         var isDrvVal = (viaVal === 'Driver PIF' || viaVal === 'Driver');
-        mobilSel.innerHTML = '<option value="">' + (isDrvVal ? '-- Pilih Plat Mobil --' : '-- Tanpa Kendaraan / Opsional --') + '</option>' +
-          (refreshedMobil.html.replace('<option value="">-- Pilih Plat Mobil --</option>', ''));
+        var isKurVal = (viaVal === 'Kurir PIF' || viaVal === 'Kurir');
+        var targetKat = isDrvVal ? 'Mobil' : (isKurVal ? 'Motor' : '');
+        var refreshedMobil = buildOrderMobilOptionsHtml(preSelectedMobilId, targetKat);
+        mobilSel.innerHTML = refreshedMobil.html;
         handleOrderMobilChange(mobilSel.value);
       }
       var custSel = document.getElementById('ord-customer');
@@ -1530,6 +1569,11 @@ function openOrderFormModal(existingIdTracking, isRedelivery) {
       driverVal = document.getElementById('ord-driver').value;
       if (!driverVal) {
         showToast('Kurir bertugas wajib dipilih.', 'warning');
+        return;
+      }
+      var motorVal = document.getElementById('ord-mobil').value || '';
+      if (!motorVal) {
+        showToast('Plat Motor wajib dipilih dari Master Mobil untuk pengiriman via Kurir PIF.', 'warning');
         return;
       }
     } else if (selectedVia === 'Online') {
@@ -3050,15 +3094,20 @@ function renderMobilView() {
   var rowsHtml = '';
 
   if (!items.length) {
-    rowsHtml = '<tr><td colspan="6" class="empty-state">Tidak ada data mobil.</td></tr>';
+    rowsHtml = '<tr><td colspan="7" class="empty-state">Tidak ada data mobil.</td></tr>';
   } else {
     for (var i = 0; i < items.length; i++) {
       var m = items[i];
       var badgeStatus = m.status === 'Aktif' ? '<span class="badge badge-selesai">Aktif</span>' : '<span class="badge badge-gagal">Nonaktif</span>';
+      var isMotor = m.jenisKendaraan === 'Motor' || (String(m.jenisMobil || '').toLowerCase().indexOf('motor') !== -1);
+      var badgeKat = isMotor
+        ? '<span class="badge" style="background:#e0f2fe;color:#0369a1;border:1px solid #bae6fd">Motor</span>'
+        : '<span class="badge" style="background:#f3e8ff;color:#6b21a8;border:1px solid #e9d5ff">Mobil</span>';
       rowsHtml +=
         '<tr>' +
           '<td><div class="cell-strong">' + escapeHtml(m.idMobil) + '</div></td>' +
           '<td><div class="cell-strong">' + escapeHtml(m.platMobil) + '</div></td>' +
+          '<td>' + badgeKat + '</td>' +
           '<td>' + escapeHtml(m.jenisMobil || '-') + '</td>' +
           '<td><span class="badge" style="background:#fef3c7;color:#92400e;border:1px solid #fde68a">' + escapeHtml(m.jenisBbm || 'Solar / Biosolar') + '</span></td>' +
           '<td>' + badgeStatus + '</td>' +
@@ -3089,7 +3138,7 @@ function renderMobilView() {
       '</div>' +
     '</div>' +
     '<div class="table-card">' +
-      '<div class="table-wrap"><table class="data-table"><thead><tr><th>ID Mobil</th><th>Plat Mobil</th><th>Jenis Mobil</th><th>Jenis BBM</th><th>Status</th><th>Aksi</th></tr></thead><tbody>' + rowsHtml + '</tbody></table></div>' +
+      '<div class="table-wrap"><table class="data-table"><thead><tr><th>ID Mobil</th><th>Plat Mobil</th><th>Jenis Kendaraan</th><th>Jenis Mobil</th><th>Jenis BBM</th><th>Status</th><th>Aksi</th></tr></thead><tbody>' + rowsHtml + '</tbody></table></div>' +
       renderPaginationBar(STATE.mobil.page, STATE.mobil.totalPages, STATE.mobil.total, 'changeMobilPage') +
     '</div>'
   );
@@ -3106,6 +3155,7 @@ function openMobilModal(idMobil) {
     }
   }
   var isEdit = Boolean(item);
+  var curKat = (item && (item.jenisKendaraan || (String(item.jenisMobil || '').toLowerCase().indexOf('motor') !== -1 ? 'Motor' : 'Mobil'))) || 'Mobil';
 
   var bbmOpts =
     '<option value="Solar / Biosolar" ' + (!item || item.jenisBbm === 'Solar / Biosolar' ? 'selected' : '') + '>Solar / Biosolar</option>' +
@@ -3120,12 +3170,19 @@ function openMobilModal(idMobil) {
     '<form id="mobil-form">' +
       '<div class="modal-body">' +
         '<div class="form-group">' +
-          '<label class="form-label" for="mbl-plat">Plat Mobil <span class="req">*</span></label>' +
+          '<label class="form-label" for="mbl-kategori">Jenis Kendaraan <span class="req">*</span></label>' +
+          '<select id="mbl-kategori" class="form-control" required>' +
+            '<option value="Mobil" ' + (curKat === 'Mobil' ? 'selected' : '') + '>Mobil</option>' +
+            '<option value="Motor" ' + (curKat === 'Motor' ? 'selected' : '') + '>Motor</option>' +
+          '</select>' +
+        '</div>' +
+        '<div class="form-group">' +
+          '<label class="form-label" for="mbl-plat">Plat Kendaraan <span class="req">*</span></label>' +
           '<input id="mbl-plat" class="form-control" type="text" style="text-transform:uppercase" value="' + escapeHtml(item ? item.platMobil : '') + '" placeholder="Contoh: B 9123 PIF" required />' +
         '</div>' +
         '<div class="form-group">' +
-          '<label class="form-label" for="mbl-jenis">Jenis Mobil <span class="req">*</span></label>' +
-          '<input id="mbl-jenis" class="form-control" type="text" list="jenis-mobil-suggestions" value="' + escapeHtml(item ? item.jenisMobil : '') + '" placeholder="Contoh: Blind Van, Pick Up Box, Engkel CDE, CDD Box..." required />' +
+          '<label class="form-label" for="mbl-jenis">Tipe / Model Kendaraan <span class="req">*</span></label>' +
+          '<input id="mbl-jenis" class="form-control" type="text" list="jenis-mobil-suggestions" value="' + escapeHtml(item ? item.jenisMobil : '') + '" placeholder="Contoh: Blind Van, Pick Up Box, Engkel CDE, CDD Box, Motor Honda Beat..." required />' +
           '<datalist id="jenis-mobil-suggestions">' +
             '<option value="Blind Van"></option>' +
             '<option value="Pick Up Box"></option>' +
@@ -3135,6 +3192,9 @@ function openMobilModal(idMobil) {
             '<option value="CDD Box"></option>' +
             '<option value="Fuso Box"></option>' +
             '<option value="Wingbox"></option>' +
+            '<option value="Motor Honda Beat"></option>' +
+            '<option value="Motor Honda Vario"></option>' +
+            '<option value="Motor Yamaha NMAX"></option>' +
           '</datalist>' +
         '</div>' +
         '<div class="form-group">' +
@@ -3164,12 +3224,14 @@ function openMobilModal(idMobil) {
     callGasApi('saveMobil', {
       idMobil: item ? item.idMobil : '',
       platMobil: document.getElementById('mbl-plat').value.trim().toUpperCase(),
+      jenisKendaraan: document.getElementById('mbl-kategori').value,
       jenisMobil: document.getElementById('mbl-jenis').value.trim(),
       jenisBbm: document.getElementById('mbl-jenis-bbm').value,
       status: document.getElementById('mbl-status').value
     }).then(function () {
       clearApiCache('mobil_');
       clearApiCache('dropdowns');
+      STATE.dropdowns.mobils = [];
       closeModal();
       fetchMobilData(true);
       showToast('Data mobil berhasil disimpan.', 'success');
