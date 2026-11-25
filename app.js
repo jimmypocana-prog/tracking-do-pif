@@ -2502,7 +2502,7 @@ function openFailedModal(idTrackings) {
         '<label class="form-label" for="fail-alasan">Keterangan / Alasan Gagal Kirim <span class="req">*</span></label>' +
         '<textarea id="fail-alasan" class="form-control" rows="3" placeholder="Contoh: Toko tutup, PIC menolak barang, kurir/ekspedisi menolak pengiriman, alamat tidak dapat diakses..." required></textarea>' +
       '</div>' +
-      renderPhotoUploaderSection('Foto Bukti Kendala di Lapangan', false, true) +
+      renderPhotoUploaderSection('Foto Bukti Kendala di Lapangan', false, false) +
     '</div>' +
     '<div class="modal-footer">' +
       '<button type="button" class="btn btn-secondary" onclick="closeModal()">Batal</button>' +
