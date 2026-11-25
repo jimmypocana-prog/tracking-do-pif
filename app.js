@@ -2149,6 +2149,7 @@ function openPickUpModal(idTrackings) {
     }
     isAllExternalKurir = (countKurir === idTrackings.length);
   }
+  var isAllKurir = Boolean(isAllExternalKurir);
 
   var kurirNotice = isAllExternalKurir
     ? '<div class="alert-box alert-info" style="margin-top:10px;margin-bottom:12px">' +
