@@ -1670,6 +1670,22 @@ table.data-table {
   transition: all 0.3s ease;
 }
 
+.accurate-upload-box {
+  border: 2px dashed #94a3b8;
+  border-radius: 12px;
+  padding: 24px 16px;
+  text-align: center;
+  cursor: pointer;
+  background: #f8fafc;
+  transition: all 0.2s ease;
+}
+
+.accurate-upload-box:hover {
+  border-color: var(--emerald);
+  background: #f0fdf4;
+}
+
+
 
 
 

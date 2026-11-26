@@ -2972,6 +2972,11 @@ function renderCustomerView() {
     }
   }
 
+  var isBackOfficeUser = STATE.session && STATE.session.user && STATE.session.user.divisi === 'Back Office';
+  var importBtnHtml = isBackOfficeUser
+    ? '<button type="button" class="btn btn-emerald" onclick="openImportCustomerAccurateModal()">' + (ICONS.fileSpreadsheet || ICONS.upload) + '<span>Import Customer Accurate (.xlsx)</span></button>'
+    : '';
+
   return (
     '<div class="page-header">' +
       '<div>' +
@@ -2980,6 +2985,7 @@ function renderCustomerView() {
       '</div>' +
       '<div class="header-actions">' +
         renderSyncStatusBadge() +
+        importBtnHtml +
         '<button type="button" class="btn btn-primary" onclick="openCustomerModal(\'\')">' + ICONS.plus + '<span>Tambah Customer</span></button>' +
       '</div>' +
     '</div>' +
@@ -3057,6 +3063,280 @@ function openCustomerModal(idCustomer) {
       btn.textContent = 'Simpan Customer';
     });
   });
+}
+
+function openImportCustomerAccurateModal() {
+  STATE._pendingAccurateImportItems = null;
+
+  var html =
+    '<div class="modal-header">' +
+      '<h3 class="modal-title">Import Pelanggan dari Accurate Online (.xlsx)</h3>' +
+      '<button type="button" class="modal-close" onclick="closeModal()">' + ICONS.x + '</button>' +
+    '</div>' +
+    '<div class="modal-body" style="display:flex;flex-direction:column;gap:12px">' +
+      '<div class="alert alert-info" style="display:flex;gap:10px;align-items:flex-start;background:#f0fdf4;border:1px solid #bbf7d0;color:#166534;border-radius:8px;padding:12px">' +
+        '<span style="font-size:18px;line-height:1">💡</span>' +
+        '<div style="font-size:12px;line-height:1.5">' +
+          '<strong>Cara Ekspor dari Accurate Online:</strong><br>' +
+          '1. Buka Accurate Online &rarr; Masuk menu <strong>Penjualan</strong> &rarr; <strong>Pelanggan</strong>.<br>' +
+          '2. Klik tombol <strong>Ekspor / Unduh Excel (.xlsx)</strong>.<br>' +
+          '3. Pilih file Excel hasil download tersebut pada kotak di bawah ini.' +
+        '</div>' +
+      '</div>' +
+      '<div id="accurate-dropzone" class="accurate-upload-box" onclick="document.getElementById(\'accurate-file-input\').click()">' +
+        '<div style="color:#059669;margin-bottom:8px;display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;background:#dcfce7;border-radius:10px">' + (ICONS.fileSpreadsheet || ICONS.upload) + '</div>' +
+        '<div style="font-weight:700;font-size:14px;color:#1e293b;margin-bottom:4px">Klik untuk Memilih File Excel Accurate</div>' +
+        '<div style="font-size:12px;color:#64748b">Mendukung format .xlsx, .xls, atau .csv</div>' +
+        '<input type="file" id="accurate-file-input" accept=".xlsx, .xls, .csv" style="display:none" onchange="handleAccurateExcelSelected(event)" />' +
+      '</div>' +
+      '<div id="accurate-import-preview" style="display:none"></div>' +
+    '</div>' +
+    '<div class="modal-footer" style="display:flex;justify-content:flex-end;gap:8px">' +
+      '<button type="button" class="btn btn-secondary" onclick="closeModal()">Batal</button>' +
+      '<button type="button" id="btn-submit-accurate-import" class="btn btn-emerald" disabled onclick="submitAccurateCustomerImport()">' +
+        ICONS.check +
+        '<span>Mulai Import Sekarang</span>' +
+      '</button>' +
+    '</div>';
+
+  openModal(html, true);
+}
+
+function handleAccurateExcelSelected(event) {
+  var file = event.target.files && event.target.files[0];
+  if (!file) {
+    return;
+  }
+
+  if (typeof XLSX === 'undefined') {
+    showToast('Library pembaca Excel (SheetJS) belum siap. Silakan muat ulang halaman.', 'error');
+    return;
+  }
+
+  var previewDiv = document.getElementById('accurate-import-preview');
+  var submitBtn = document.getElementById('btn-submit-accurate-import');
+  if (previewDiv) {
+    previewDiv.style.display = 'block';
+    previewDiv.innerHTML = '<div style="padding:16px;text-align:center;color:#64748b;font-size:13px"><span class="spinner" style="display:inline-block;width:14px;height:14px;border:2px solid #0284c7;border-top-color:transparent;border-radius:50%;animation:spin 0.8s linear infinite;margin-right:6px"></span> Membaca dan menganalisis file Excel...</div>';
+  }
+
+  var reader = new FileReader();
+  reader.onload = function (e) {
+    try {
+      var data = new Uint8Array(e.target.result);
+      var workbook = XLSX.read(data, { type: 'array' });
+      if (!workbook.SheetNames || !workbook.SheetNames.length) {
+        showToast('File Excel tidak memiliki lembar kerja (sheet).', 'warning');
+        if (previewDiv) previewDiv.style.display = 'none';
+        return;
+      }
+
+      var sheet = workbook.Sheets[workbook.SheetNames[0]];
+      var sheetData = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+      if (!sheetData || sheetData.length <= 1) {
+        showToast('File Excel kosong atau tidak memiliki baris data.', 'warning');
+        if (previewDiv) previewDiv.style.display = 'none';
+        return;
+      }
+
+      var headerRowIndex = 0;
+      var colId = -1;
+      var colName = -1;
+      var colAddress = -1;
+      var colPic = -1;
+      var colPhone = -1;
+
+      for (var r = 0; r < Math.min(sheetData.length, 15); r++) {
+        var row = sheetData[r];
+        if (!Array.isArray(row)) continue;
+        var tempId = -1;
+        var tempName = -1;
+        var tempAddress = -1;
+
+        for (var c = 0; c < row.length; c++) {
+          var h = String(row[c] || '').trim().toLowerCase();
+          if (/no\.?\s*pelanggan|id\s*pelanggan|kode\s*pelanggan|customer\s*no|no\s*customer|id\s*customer/.test(h)) {
+            tempId = c;
+          }
+          if (/nama\s*pelanggan|nama\s*customer|customer\s*name|^nama$/.test(h)) {
+            tempName = c;
+          }
+          if (/alamat\s*penagihan|alamat\s*pengiriman|^alamat$|address|street/.test(h)) {
+            tempAddress = c;
+          }
+        }
+
+        if (tempName !== -1) {
+          headerRowIndex = r;
+          colId = tempId;
+          colName = tempName;
+          colAddress = tempAddress;
+          for (var c2 = 0; c2 < row.length; c2++) {
+            var h2 = String(row[c2] || '').trim().toLowerCase();
+            if (/kontak|pic|contact/.test(h2)) colPic = c2;
+            if (/telepon|handphone|no\.?\s*hp|no\.?\s*wa|phone|mobile/.test(h2)) colPhone = c2;
+          }
+          break;
+        }
+      }
+
+      if (colName === -1) {
+        showToast('Kolom "Nama Pelanggan" tidak ditemukan di file Excel. Pastikan file adalah ekspor Pelanggan dari Accurate.', 'error');
+        if (previewDiv) previewDiv.style.display = 'none';
+        return;
+      }
+
+      var existingMap = {};
+      var existingList = STATE.dropdowns && STATE.dropdowns.customers ? STATE.dropdowns.customers : [];
+      for (var k = 0; k < existingList.length; k++) {
+        var ex = existingList[k];
+        if (ex.idCustomer) existingMap[String(ex.idCustomer).trim().toLowerCase()] = true;
+        if (ex.namaCustomer) existingMap[String(ex.namaCustomer).trim().toLowerCase()] = true;
+      }
+      if (STATE.customer && STATE.customer.items) {
+        for (var m = 0; m < STATE.customer.items.length; m++) {
+          var ci = STATE.customer.items[m];
+          if (ci.idCustomer) existingMap[String(ci.idCustomer).trim().toLowerCase()] = true;
+          if (ci.namaCustomer) existingMap[String(ci.namaCustomer).trim().toLowerCase()] = true;
+        }
+      }
+
+      var newCustomers = [];
+      var skippedCount = 0;
+      var previewRows = [];
+
+      for (var i = headerRowIndex + 1; i < sheetData.length; i++) {
+        var rData = sheetData[i];
+        if (!rData || !rData.length) continue;
+        var rawNama = String(colName !== -1 ? rData[colName] || '' : '').trim();
+        if (!rawNama) continue;
+
+        var rawId = String(colId !== -1 ? rData[colId] || '' : '').trim();
+        var rawAlamat = String(colAddress !== -1 ? rData[colAddress] || '' : '').trim();
+        var rawPic = String(colPic !== -1 ? rData[colPic] || '' : '').trim();
+        var rawPhone = String(colPhone !== -1 ? rData[colPhone] || '' : '').trim();
+
+        var normId = rawId.toLowerCase();
+        var normNama = rawNama.toLowerCase();
+        var isDuplicate = (normId && existingMap[normId]) || existingMap[normNama];
+
+        if (isDuplicate) {
+          skippedCount++;
+          if (previewRows.length < 8) {
+            previewRows.push({ id: rawId || '-', nama: rawNama, alamat: rawAlamat, status: 'Sudah Ada (Dilewati)' });
+          }
+        } else {
+          if (normId) existingMap[normId] = true;
+          existingMap[normNama] = true;
+          var newObj = {
+            idCustomer: rawId,
+            namaCustomer: rawNama,
+            alamat: rawAlamat || '-',
+            namaPIC: rawPic || '-',
+            noWhatsApp: rawPhone || '-'
+          };
+          newCustomers.push(newObj);
+          if (previewRows.length < 8) {
+            previewRows.push({ id: rawId || '(Otomatis)', nama: rawNama, alamat: rawAlamat, status: 'Baru (Akan Di-import)' });
+          }
+        }
+      }
+
+      STATE._pendingAccurateImportItems = newCustomers;
+
+      var previewHtml =
+        '<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px">' +
+          '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:4px">' +
+            '<span style="font-weight:700;font-size:13px;color:#1e293b">Hasil Pengecekan File (' + escapeHtml(file.name) + ')</span>' +
+            '<span style="font-size:12px;color:#64748b">Total dibaca: ' + (newCustomers.length + skippedCount) + ' baris</span>' +
+          '</div>' +
+          '<div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">' +
+            '<span class="badge" style="background:#dcfce7;color:#15803d;font-weight:700;padding:4px 8px;border-radius:6px;font-size:12px">✓ ' + newCustomers.length + ' Pelanggan Baru</span>' +
+            '<span class="badge" style="background:#f1f5f9;color:#64748b;font-weight:600;padding:4px 8px;border-radius:6px;font-size:12px">' + skippedCount + ' Sudah Terdaftar (Dilewati)</span>' +
+          '</div>';
+
+      if (previewRows.length > 0) {
+        previewHtml +=
+          '<div style="overflow-x:auto;max-height:180px;border:1px solid #e2e8f0;border-radius:6px">' +
+            '<table style="width:100%;font-size:11px;border-collapse:collapse;text-align:left">' +
+              '<thead style="background:#f1f5f9;position:sticky;top:0">' +
+                '<tr><th style="padding:5px 8px">ID Pelanggan</th><th style="padding:5px 8px">Nama Pelanggan</th><th style="padding:5px 8px">Alamat</th><th style="padding:5px 8px">Status</th></tr>' +
+              '</thead>' +
+              '<tbody>';
+        for (var p = 0; p < previewRows.length; p++) {
+          var pr = previewRows[p];
+          var isNew = pr.status.indexOf('Baru') !== -1;
+          previewHtml +=
+            '<tr style="border-top:1px solid #f1f5f9">' +
+              '<td style="padding:5px 8px;white-space:nowrap;font-family:monospace;font-size:11px">' + escapeHtml(pr.id) + '</td>' +
+              '<td style="padding:5px 8px;font-weight:600">' + escapeHtml(pr.nama) + '</td>' +
+              '<td style="padding:5px 8px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escapeHtml(pr.alamat || '-') + '</td>' +
+              '<td style="padding:5px 8px"><span style="color:' + (isNew ? '#15803d' : '#94a3b8') + ';font-weight:700">' + pr.status + '</span></td>' +
+            '</tr>';
+        }
+        previewHtml += '</tbody></table></div>';
+      }
+
+      previewHtml += '</div>';
+
+      if (previewDiv) {
+        previewDiv.innerHTML = previewHtml;
+        previewDiv.style.display = 'block';
+      }
+
+      if (submitBtn) {
+        if (newCustomers.length > 0) {
+          submitBtn.disabled = false;
+          submitBtn.innerHTML = ICONS.check + '<span>Mulai Import (' + newCustomers.length + ' Customer Baru)</span>';
+        } else {
+          submitBtn.disabled = true;
+          submitBtn.innerHTML = ICONS.check + '<span>Tidak Ada Pelanggan Baru</span>';
+        }
+      }
+    } catch (err) {
+      console.error('Error memproses file Excel Accurate:', err);
+      showToast('Gagal memproses file Excel: ' + (err.message || err), 'error');
+      if (previewDiv) previewDiv.style.display = 'none';
+    }
+  };
+
+  reader.readAsArrayBuffer(file);
+}
+
+function submitAccurateCustomerImport() {
+  var items = STATE._pendingAccurateImportItems;
+  if (!items || !items.length) {
+    showToast('Tidak ada data pelanggan baru yang perlu di-import.', 'warning');
+    return;
+  }
+
+  var btn = document.getElementById('btn-submit-accurate-import');
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span><span>Menyimpan ke Database...</span>';
+  }
+
+  callGasApi('importCustomersBatch', { items: items })
+    .then(function (res) {
+      clearApiCache('customer_');
+      clearApiCache('dropdowns');
+      closeModal();
+      fetchCustomerData(true);
+      ensureDropdownsLoaded(true);
+      var msg = 'Berhasil mengimpor ' + (res.importedCount || 0) + ' customer baru dari Accurate!';
+      if (res.skippedCount > 0) {
+        msg += ' (' + res.skippedCount + ' sudah ada dilewati)';
+      }
+      showToast(msg, 'success');
+    })
+    .catch(function (err) {
+      console.error('Gagal import customer:', err);
+      showToast('Gagal import customer: ' + (err.message || err), 'error');
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = ICONS.check + '<span>Mulai Import Ulang</span>';
+      }
+    });
 }
 
 function fetchMobilData(forceRefresh, fetchOpts) {
