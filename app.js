@@ -3306,8 +3306,8 @@ function renderDeliveryOrderListView() {
         badgeStatus = '<span class="badge badge-gagal">Gagal Kirim</span>';
       }
 
-      var tglPickUpStr = it.waktuPickUp ? formatTanggalIndo(it.waktuPickUp) : '-';
-      var tglSelesaiStr = it.waktuSelesai ? formatTanggalIndo(it.waktuSelesai) : '-';
+      var tglPickUpStr = it.waktuPickUp ? formatDateTimeID(it.waktuPickUp) : '-';
+      var tglSelesaiStr = it.waktuSelesai ? formatDateTimeID(it.waktuSelesai) : '-';
 
       rowsHtml +=
         '<tr>' +
@@ -3334,17 +3334,40 @@ function renderDeliveryOrderListView() {
         '<button type="button" class="btn btn-emerald" onclick="openImportOrderListModal()">' + (ICONS.fileSpreadsheet || ICONS.upload) + '<span>Import dari Excel (.xlsx)</span></button>' +
       '</div>' +
     '</div>' +
-    '<div class="card" style="margin-bottom:14px">' +
-      '<div class="filter-bar" style="margin-bottom:0;display:grid;grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));gap:10px">' +
-        '<div class="form-group"><label class="form-label">No Faktur</label><input id="dol-no-faktur" class="form-control" type="text" value="' + escapeHtml(f.noFaktur) + '" placeholder="Cari nomor faktur..." onkeydown="if(event.key===\'Enter\'){event.preventDefault();applyOrderListFilter();}" /></div>' +
-        '<div class="form-group"><label class="form-label">Nama Customer</label><input id="dol-customer" class="form-control" type="text" value="' + escapeHtml(f.customer) + '" placeholder="Cari nama customer..." onkeydown="if(event.key===\'Enter\'){event.preventDefault();applyOrderListFilter();}" /></div>' +
-        '<div class="form-group"><label class="form-label">Status Pengiriman</label><select id="dol-status" class="form-control"><option value="">Semua Status</option><option value="-" ' + (f.status === '-' ? 'selected' : '') + '>- (Belum Ada DO)</option><option value="Siap Pick Up" ' + (f.status === 'Siap Pick Up' ? 'selected' : '') + '>Siap Pick Up</option><option value="Dalam Perjalanan" ' + (f.status === 'Dalam Perjalanan' ? 'selected' : '') + '>Dalam Perjalanan</option><option value="Check-In Customer" ' + (f.status === 'Check-In Customer' ? 'selected' : '') + '>Check-In Customer</option><option value="Selesai" ' + (f.status === 'Selesai' ? 'selected' : '') + '>Selesai</option><option value="Gagal Kirim" ' + (f.status === 'Gagal Kirim' ? 'selected' : '') + '>Gagal Kirim</option></select></div>' +
-        '<div class="form-group"><label class="form-label">Tgl Invoice (Dari - S.d.)</label><div style="display:flex;gap:4px"><input id="dol-date-from" class="form-control" type="date" value="' + escapeHtml(f.dateFrom) + '" /><input id="dol-date-to" class="form-control" type="date" value="' + escapeHtml(f.dateTo) + '" /></div></div>' +
-        '<div class="form-group"><label class="form-label">Tgl Pick Up (Dari - S.d.)</label><div style="display:flex;gap:4px"><input id="dol-pickup-from" class="form-control" type="date" value="' + escapeHtml(f.pickUpDateFrom) + '" /><input id="dol-pickup-to" class="form-control" type="date" value="' + escapeHtml(f.pickUpDateTo) + '" /></div></div>' +
-        '<div class="form-group"><label class="form-label">Tgl Selesai (Dari - S.d.)</label><div style="display:flex;gap:4px"><input id="dol-selesai-from" class="form-control" type="date" value="' + escapeHtml(f.selesaiDateFrom) + '" /><input id="dol-selesai-to" class="form-control" type="date" value="' + escapeHtml(f.selesaiDateTo) + '" /></div></div>' +
-        '<div class="form-group" style="display:flex;gap:6px;align-items:flex-end">' +
+    '<div class="card" style="margin-bottom:14px;padding:16px">' +
+      '<div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(200px, 1fr));gap:12px;margin-bottom:12px;align-items:flex-end">' +
+        '<div class="form-group" style="margin-bottom:0"><label class="form-label">No Faktur</label><input id="dol-no-faktur" class="form-control" type="text" value="' + escapeHtml(f.noFaktur) + '" placeholder="Cari nomor faktur..." onkeydown="if(event.key===\'Enter\'){event.preventDefault();applyOrderListFilter();}" /></div>' +
+        '<div class="form-group" style="margin-bottom:0"><label class="form-label">Nama Customer</label><input id="dol-customer" class="form-control" type="text" value="' + escapeHtml(f.customer) + '" placeholder="Cari nama customer..." onkeydown="if(event.key===\'Enter\'){event.preventDefault();applyOrderListFilter();}" /></div>' +
+        '<div class="form-group" style="margin-bottom:0"><label class="form-label">Status Pengiriman</label><select id="dol-status" class="form-control"><option value="">Semua Status</option><option value="-" ' + (f.status === '-' ? 'selected' : '') + '>- (Belum Ada DO)</option><option value="Siap Pick Up" ' + (f.status === 'Siap Pick Up' ? 'selected' : '') + '>Siap Pick Up</option><option value="Dalam Perjalanan" ' + (f.status === 'Dalam Perjalanan' ? 'selected' : '') + '>Dalam Perjalanan</option><option value="Check-In Customer" ' + (f.status === 'Check-In Customer' ? 'selected' : '') + '>Check-In Customer</option><option value="Selesai" ' + (f.status === 'Selesai' ? 'selected' : '') + '>Selesai</option><option value="Gagal Kirim" ' + (f.status === 'Gagal Kirim' ? 'selected' : '') + '>Gagal Kirim</option></select></div>' +
+        '<div class="form-group" style="margin-bottom:0;display:flex;gap:6px">' +
           '<button type="button" class="btn btn-navy" style="flex:1" onclick="applyOrderListFilter()">Filter</button>' +
           '<button type="button" class="btn-reset-filter" onclick="resetOrderListFilter()" title="Reset Filter">' + ICONS.rotateCcw + '<span>Reset</span></button>' +
+        '</div>' +
+      '</div>' +
+      '<div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(280px, 1fr));gap:14px;padding-top:12px;border-top:1px dashed #e2e8f0">' +
+        '<div class="form-group" style="margin-bottom:0">' +
+          '<label class="form-label" style="font-weight:600;color:#475569">Tgl Invoice</label>' +
+          '<div style="display:flex;align-items:center;gap:6px">' +
+            '<input id="dol-date-from" class="form-control" type="date" value="' + escapeHtml(f.dateFrom) + '" style="flex:1;min-width:120px" />' +
+            '<span style="font-size:11px;color:#94a3b8;font-weight:700">s/d</span>' +
+            '<input id="dol-date-to" class="form-control" type="date" value="' + escapeHtml(f.dateTo) + '" style="flex:1;min-width:120px" />' +
+          '</div>' +
+        '</div>' +
+        '<div class="form-group" style="margin-bottom:0">' +
+          '<label class="form-label" style="font-weight:600;color:#475569">Tgl Pick Up</label>' +
+          '<div style="display:flex;align-items:center;gap:6px">' +
+            '<input id="dol-pickup-from" class="form-control" type="date" value="' + escapeHtml(f.pickUpDateFrom) + '" style="flex:1;min-width:120px" />' +
+            '<span style="font-size:11px;color:#94a3b8;font-weight:700">s/d</span>' +
+            '<input id="dol-pickup-to" class="form-control" type="date" value="' + escapeHtml(f.pickUpDateTo) + '" style="flex:1;min-width:120px" />' +
+          '</div>' +
+        '</div>' +
+        '<div class="form-group" style="margin-bottom:0">' +
+          '<label class="form-label" style="font-weight:600;color:#475569">Tgl Selesai</label>' +
+          '<div style="display:flex;align-items:center;gap:6px">' +
+            '<input id="dol-selesai-from" class="form-control" type="date" value="' + escapeHtml(f.selesaiDateFrom) + '" style="flex:1;min-width:120px" />' +
+            '<span style="font-size:11px;color:#94a3b8;font-weight:700">s/d</span>' +
+            '<input id="dol-selesai-to" class="form-control" type="date" value="' + escapeHtml(f.selesaiDateTo) + '" style="flex:1;min-width:120px" />' +
+          '</div>' +
         '</div>' +
       '</div>' +
     '</div>' +
@@ -3463,8 +3486,8 @@ function exportOrderListToExcel() {
       'Tanggal Invoice': it.tanggalInvoice || '-',
       'Nama Customer': it.namaCustomer,
       'Status Pengiriman': it.statusPengiriman || '-',
-      'Tanggal Pick Up': it.waktuPickUp ? formatTanggalIndo(it.waktuPickUp) : '-',
-      'Tanggal Selesai': it.waktuSelesai ? formatTanggalIndo(it.waktuSelesai) : '-',
+      'Tanggal Pick Up': it.waktuPickUp ? formatDateTimeID(it.waktuPickUp) : '-',
+      'Tanggal Selesai': it.waktuSelesai ? formatDateTimeID(it.waktuSelesai) : '-',
       'Petugas': it.namaDriver || '-'
     });
   }

@@ -82,6 +82,17 @@ function formatDateTimeID(iso) {
   return dd + ' ' + mm + ' ' + yyyy + ', ' + hh + ':' + mi;
 }
 
+function formatTanggalIndo(val) {
+  if (!val) {
+    return '-';
+  }
+  var str = String(val).trim();
+  if (str.indexOf('T') !== -1 || str.indexOf(':') !== -1) {
+    return formatDateTimeID(str);
+  }
+  return formatDateID(str);
+}
+
 function formatNumberID(num) {
   if (num === null || num === undefined || isNaN(Number(num))) {
     return '0';
