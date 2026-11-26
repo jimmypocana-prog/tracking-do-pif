@@ -3490,7 +3490,7 @@ function openImportOrderListModal() {
         '<span style="font-size:18px;line-height:1">💡</span>' +
         '<div style="font-size:12px;line-height:1.5">' +
           '<strong>Format File Excel yang Dibutuhkan:</strong><br>' +
-          'File Excel (.xlsx / .xls / .csv) harus memuat kolom: <strong>Tgl Invoice</strong>, <strong>No Faktur</strong>, dan <strong>Nama Customer</strong>.<br>' +
+          'File Excel (.xlsx / .xls / .csv) harus memuat kolom: <strong>Date</strong> (Tgl Invoice), <strong>Number</strong> (No Faktur), dan <strong>Customer</strong> (Nama Customer).<br>' +
           'Data yang nomor fakturnya sudah pernah di-import akan otomatis dilewati agar tidak dobel.' +
         '</div>' +
       '</div>' +
@@ -3533,7 +3533,7 @@ function handleOrderListExcelSelected(event) {
   reader.onload = function (e) {
     try {
       var data = new Uint8Array(e.target.result);
-      var workbook = XLSX.read(data, { type: 'array' });
+      var workbook = XLSX.read(data, { type: 'array', cellDates: true });
       if (!workbook.SheetNames || !workbook.SheetNames.length) {
         showToast('File Excel tidak memiliki lembar kerja (sheet).', 'warning');
         if (previewDiv) previewDiv.style.display = 'none';
@@ -3560,13 +3560,13 @@ function handleOrderListExcelSelected(event) {
 
         for (var c = 0; c < row.length; c++) {
           var h = String(row[c] || '').trim().toLowerCase();
-          if (/no\.?\s*faktur|nomor\s*faktur|invoice\s*no|no\.?\s*invoice|nomor\s*invoice|^faktur$|^no\s*do$|^nomor\s*do$/.test(h)) {
+          if (/^number$|invoice\s*number|inv\.?\s*number|no\.?\s*faktur|nomor\s*faktur|invoice\s*no|no\.?\s*invoice|nomor\s*invoice|inv\.?\s*no|^faktur$|^no\s*do$|^nomor\s*do$/i.test(h)) {
             tempFaktur = c;
           }
-          if (/tgl\.?\s*invoice|tanggal\s*invoice|invoice\s*date|tgl\.?\s*faktur|tanggal\s*faktur|^tgl$|^tanggal$/.test(h)) {
+          if (/^date$|invoice\s*date|inv\.?\s*date|tgl\.?\s*invoice|tanggal\s*invoice|tgl\.?\s*faktur|tanggal\s*faktur|^tgl$|^tanggal$/i.test(h)) {
             tempDate = c;
           }
-          if (/nama\s*customer|customer\s*name|nama\s*pelanggan|^customer$|^pelanggan$/.test(h)) {
+          if (/^customer$|^cust$|nama\s*customer|customer\s*name|cust\.?\s*name|nama\s*pelanggan|^pelanggan$/i.test(h)) {
             tempCust = c;
           }
         }
@@ -3581,7 +3581,7 @@ function handleOrderListExcelSelected(event) {
       }
 
       if (colFaktur === -1 || colCustomer === -1) {
-        showToast('Kolom "No Faktur" atau "Nama Customer" tidak terdeteksi di file Excel. Pastikan header sesuai.', 'error');
+        showToast('Kolom "Number" (No Faktur) atau "Customer" (Nama Customer) tidak terdeteksi di file Excel. Pastikan header sesuai.', 'error');
         if (previewDiv) previewDiv.style.display = 'none';
         return;
       }
@@ -3603,7 +3603,24 @@ function handleOrderListExcelSelected(event) {
 
         var rawNoFaktur = String(rData[colFaktur] || '').trim();
         var rawCustomer = String(rData[colCustomer] || '').trim();
-        var rawDate = colDate !== -1 ? String(rData[colDate] || '').trim() : '';
+        var rawDate = '';
+        if (colDate !== -1) {
+          var valDate = rData[colDate];
+          if (valDate instanceof Date) {
+            var yr = valDate.getFullYear();
+            var mo = String(valDate.getMonth() + 1).padStart(2, '0');
+            var dy = String(valDate.getDate()).padStart(2, '0');
+            rawDate = yr + '-' + mo + '-' + dy;
+          } else if (typeof valDate === 'number' && valDate > 20000 && valDate < 60000) {
+            var jsDate = new Date(Math.round((valDate - 25569) * 86400 * 1000));
+            var yr = jsDate.getUTCFullYear();
+            var mo = String(jsDate.getUTCMonth() + 1).padStart(2, '0');
+            var dy = String(jsDate.getUTCDate()).padStart(2, '0');
+            rawDate = yr + '-' + mo + '-' + dy;
+          } else {
+            rawDate = String(valDate || '').trim();
+          }
+        }
 
         if (!rawNoFaktur || !rawCustomer) continue;
 
