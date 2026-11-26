@@ -83,6 +83,27 @@ var STATE = {
     filters: { search: '', status: '' }
   },
 
+  orderList: {
+    items: [],
+    total: 0,
+    page: 1,
+    limit: 15,
+    totalPages: 1,
+    filters: {
+      search: '',
+      noFaktur: '',
+      customer: '',
+      status: '',
+      dateFrom: '',
+      dateTo: '',
+      pickUpDateFrom: '',
+      pickUpDateTo: '',
+      selesaiDateFrom: '',
+      selesaiDateTo: ''
+    }
+  },
+  availableInvoices: [],
+
   report: {
     items: [],
     total: 0,
@@ -346,10 +367,12 @@ function renderApp() {
     navPrimary =
       '<button type="button" class="nav-btn ' + (STATE.currentPage === 'dashboard' ? 'active' : '') + '" onclick="navigateTo(\'dashboard\')">' + ICONS.dashboard + '<span>Dashboard</span></button>' +
       '<button type="button" class="nav-btn ' + (STATE.currentPage === 'orders' ? 'active' : '') + '" onclick="navigateTo(\'orders\')">' + ICONS.box + '<span>Delivery Order - PIF</span></button>' +
+      '<button type="button" class="nav-btn ' + (STATE.currentPage === 'order-list' ? 'active' : '') + '" onclick="navigateTo(\'order-list\')">' + (ICONS.fileSpreadsheet || ICONS.fileText) + '<span>DO List</span></button>' +
       '<button type="button" class="nav-btn desktop-only-nav ' + (STATE.currentPage === 'monitor' ? 'active' : '') + '" onclick="navigateTo(\'monitor\')">' + ICONS.mapPin + '<span>Tracking</span></button>' +
       '<button type="button" class="nav-btn desktop-only-nav ' + (STATE.currentPage === 'report' ? 'active' : '') + '" onclick="navigateTo(\'report\')">' + ICONS.fileText + '<span>Laporan</span></button>';
 
     overflowItems =
+      '<button type="button" class="dropdown-item mobile-only-nav ' + (STATE.currentPage === 'order-list' ? 'active' : '') + '" onclick="navigateTo(\'order-list\')">' + (ICONS.fileSpreadsheet || ICONS.fileText) + '<span>Delivery Order List</span></button>' +
       '<button type="button" class="dropdown-item mobile-only-nav ' + (STATE.currentPage === 'monitor' ? 'active' : '') + '" onclick="navigateTo(\'monitor\')">' + ICONS.mapPin + '<span>Tracking Monitor</span></button>' +
       '<button type="button" class="dropdown-item ' + (STATE.currentPage === 'report' && STATE.reportActiveTab === 'orders' ? 'active' : '') + '" onclick="switchReportTab(\'orders\')">' + ICONS.fileText + '<span>Laporan Delivery Order</span></button>' +
       '<button type="button" class="dropdown-item ' + (STATE.currentPage === 'report' && STATE.reportActiveTab === 'aktivitas' ? 'active' : '') + '" onclick="switchReportTab(\'aktivitas\')">' + ICONS.truck + '<span>Laporan Aktivitas Driver</span></button>' +
@@ -383,6 +406,8 @@ function renderApp() {
     pageBody = renderDashboardView();
   } else if (STATE.currentPage === 'orders') {
     pageBody = renderOrdersView();
+  } else if (STATE.currentPage === 'order-list') {
+    pageBody = renderDeliveryOrderListView();
   } else if (STATE.currentPage === 'monitor') {
     pageBody = renderMonitorView();
   } else if (STATE.currentPage === 'tracking-driver') {
@@ -450,6 +475,8 @@ function loadActivePageData(forceRefresh, fetchOpts) {
       fetchOrdersData(forceRefresh, opts);
       refreshViaFilterDropdownInDom_();
     });
+  } else if (p === 'order-list') {
+    fetchOrderListData(forceRefresh, opts);
   } else if (p === 'tracking-driver') {
     fetchDriverTrackingData(forceRefresh, opts);
   } else if (p === 'karyawan') {
@@ -1361,6 +1388,7 @@ function handleOrderViaChange(selectedVia, keepDriverId) {
 }
 
 function openOrderFormModal(existingIdTracking, isRedelivery) {
+  loadAvailableInvoices(true);
   var existing = null;
   if (existingIdTracking) {
     for (var i = 0; i < STATE.orders.items.length; i++) {
@@ -1476,9 +1504,14 @@ function openOrderFormModal(existingIdTracking, isRedelivery) {
             '<input id="ord-barcode-file-input" type="file" accept="image/*" style="display:none" onchange="handleBarcodeFileScan(this.files)" />' +
           '</div>'
         : '') +
-        '<div class="form-group">' +
-          '<label class="form-label" for="ord-nomor">Nomor Delivery Order <span class="req">*</span></label>' +
-          '<input id="ord-nomor" class="form-control" type="text" value="' + escapeHtml(existing ? existing.nomorDO : '') + '" ' + (isRedelivery ? 'readonly' : '') + ' placeholder="Contoh: DO-PIF/11/0012" required />' +
+        '<div class="form-group" style="position:relative">' +
+          '<label class="form-label" for="ord-nomor">Nomor Delivery Order / Faktur <span class="req">*</span></label>' +
+          '<div style="position:relative">' +
+            '<input id="ord-nomor" class="form-control" type="text" autocomplete="off" value="' + escapeHtml(existing ? existing.nomorDO : '') + '" ' + (isRedelivery ? 'readonly' : '') + ' placeholder="Ketik no faktur atau 4 digit terakhir..." required oninput="handleOrderNomorInput(this.value)" onfocus="handleOrderNomorFocus(this.value)" />' +
+            '<div id="ord-nomor-clear" onclick="clearSelectedInvoice()" style="display:none;position:absolute;right:10px;top:50%;transform:translateY(-50%);cursor:pointer;color:#94a3b8;font-size:14px;padding:4px" title="Hapus dan cari no faktur lain">✕</div>' +
+          '</div>' +
+          '<div id="ord-nomor-dropdown" style="display:none;position:absolute;top:100%;left:0;right:0;background:#ffffff;border:1px solid #cbd5e1;border-radius:8px;box-shadow:0 10px 25px -5px rgba(0,0,0,0.15);max-height:220px;overflow-y:auto;z-index:999;margin-top:4px"></div>' +
+          '<div id="ord-inv-hint" class="form-hint" style="font-size:12px;color:#64748b;margin-top:4px">Ketik 4 digit terakhir no faktur untuk mencari dari Delivery Order List.</div>' +
         '</div>' +
         '<div class="form-grid-2">' +
           '<div class="form-group">' +
@@ -1609,10 +1642,13 @@ function openOrderFormModal(existingIdTracking, isRedelivery) {
       driverVal = selectedVia.toUpperCase();
     }
 
+    var custEl = document.getElementById('ord-customer');
+    var custVal = custEl ? (custEl.value || (custEl.dataset && custEl.dataset.selectedId) || (custEl.dataset && custEl.dataset.selectedName) || '') : '';
+
     var payload = {
       tanggalDO: document.getElementById('ord-tanggal').value,
       nomorDO: document.getElementById('ord-nomor').value.trim(),
-      idCustomer: document.getElementById('ord-customer').value,
+      idCustomer: custVal,
       idDriver: driverVal,
       idMobil: document.getElementById('ord-mobil').value || '',
       via: selectedVia
@@ -1629,11 +1665,13 @@ function openOrderFormModal(existingIdTracking, isRedelivery) {
     callGasApi(action, payload)
       .then(function (res) {
         clearApiCache('orders_');
+        clearApiCache('order_list_');
         clearApiCache('dashboard_');
         clearApiCache('report_');
         clearApiCache('tracking_');
         closeModal();
         fetchOrdersData(true);
+        loadAvailableInvoices(true);
         showToast(
           res.isRedelivery
             ? 'Kirim Ulang DO berhasil dibuat (Percobaan #' + res.item.percobaanKe + ').'
@@ -1650,6 +1688,191 @@ function openOrderFormModal(existingIdTracking, isRedelivery) {
         }
       });
   });
+}
+
+function loadAvailableInvoices(forceRefresh) {
+  if (STATE.availableInvoices && STATE.availableInvoices.length && !forceRefresh) {
+    return Promise.resolve(STATE.availableInvoices);
+  }
+  return callGasApi('getAvailableInvoices', {}, { forceRefresh: Boolean(forceRefresh) })
+    .then(function (list) {
+      STATE.availableInvoices = Array.isArray(list) ? list : [];
+      return STATE.availableInvoices;
+    })
+    .catch(function (err) {
+      console.warn('Gagal memuat faktur tersedia:', err);
+      STATE.availableInvoices = [];
+      return [];
+    });
+}
+
+function handleOrderNomorInput(val) {
+  var clearBtn = document.getElementById('ord-nomor-clear');
+  if (clearBtn) clearBtn.style.display = val ? 'block' : 'none';
+
+  var clean = String(val || '').trim().toLowerCase();
+  if (!clean) {
+    closeInvoiceSuggestions();
+    unlockCustomerSelect();
+    return;
+  }
+
+  var matches = [];
+  var invoices = STATE.availableInvoices || [];
+  for (var i = 0; i < invoices.length; i++) {
+    var inv = invoices[i];
+    var fn = String(inv.nomorFaktur || '').toLowerCase();
+    var cn = String(inv.namaCustomer || '').toLowerCase();
+    var last4 = fn.slice(-4);
+    if (fn.indexOf(clean) !== -1 || cn.indexOf(clean) !== -1 || (clean.length >= 3 && last4.indexOf(clean) !== -1)) {
+      matches.push(inv);
+    }
+  }
+
+  for (var m = 0; m < matches.length; m++) {
+    if (matches[m].nomorFaktur.toLowerCase() === clean) {
+      autoFillAndLockCustomer(matches[m]);
+      closeInvoiceSuggestions();
+      return;
+    }
+  }
+
+  renderInvoiceSuggestions(matches);
+}
+
+function handleOrderNomorFocus(val) {
+  if (!val) {
+    var invoices = STATE.availableInvoices || [];
+    if (invoices.length) {
+      renderInvoiceSuggestions(invoices.slice(0, 15));
+    }
+  } else {
+    handleOrderNomorInput(val);
+  }
+}
+
+function renderInvoiceSuggestions(matches) {
+  var dd = document.getElementById('ord-nomor-dropdown');
+  if (!dd) return;
+
+  if (!matches || !matches.length) {
+    dd.innerHTML = '<div style="padding:10px;font-size:12px;color:#94a3b8;text-align:center">Tidak ada faktur cocok di Delivery Order List.</div>';
+    dd.style.display = 'block';
+    return;
+  }
+
+  var html = '';
+  for (var i = 0; i < Math.min(matches.length, 12); i++) {
+    var inv = matches[i];
+    html +=
+      '<div class="invoice-suggest-item" onclick="selectInvoiceForOrder(\'' + escapeHtml(inv.nomorFaktur) + '\')" style="padding:8px 12px;cursor:pointer;border-bottom:1px solid #f1f5f9;display:flex;justify-content:space-between;align-items:center">' +
+        '<div>' +
+          '<div style="font-weight:700;font-size:13px;color:#0f172a;font-family:monospace">' + escapeHtml(inv.nomorFaktur) + '</div>' +
+          '<div style="font-size:12px;color:#334155">' + escapeHtml(inv.namaCustomer) + '</div>' +
+        '</div>' +
+        '<div style="font-size:11px;color:#64748b;background:#f1f5f9;padding:2px 6px;border-radius:4px">' + escapeHtml(inv.tanggalInvoice || '-') + '</div>' +
+      '</div>';
+  }
+  dd.innerHTML = html;
+  dd.style.display = 'block';
+}
+
+function closeInvoiceSuggestions() {
+  var dd = document.getElementById('ord-nomor-dropdown');
+  if (dd) dd.style.display = 'none';
+}
+
+function selectInvoiceForOrder(nomorFaktur) {
+  var inputEl = document.getElementById('ord-nomor');
+  if (inputEl) inputEl.value = nomorFaktur;
+
+  var invoices = STATE.availableInvoices || [];
+  for (var i = 0; i < invoices.length; i++) {
+    if (invoices[i].nomorFaktur === nomorFaktur) {
+      autoFillAndLockCustomer(invoices[i]);
+      break;
+    }
+  }
+  closeInvoiceSuggestions();
+  var clearBtn = document.getElementById('ord-nomor-clear');
+  if (clearBtn) clearBtn.style.display = 'block';
+}
+
+function autoFillAndLockCustomer(inv) {
+  if (!inv) return;
+  var custEl = document.getElementById('ord-customer');
+  if (!custEl) return;
+
+  var targetName = String(inv.namaCustomer || '').trim().toLowerCase();
+  var matchedOption = false;
+
+  for (var i = 0; i < custEl.options.length; i++) {
+    var optText = custEl.options[i].text.trim().toLowerCase();
+    var optVal = custEl.options[i].value.trim().toLowerCase();
+    if (optText === targetName || (inv.idCustomer && optVal === inv.idCustomer.toLowerCase())) {
+      custEl.selectedIndex = i;
+      matchedOption = true;
+      break;
+    }
+  }
+
+  if (!matchedOption) {
+    var newOpt = new Option(inv.namaCustomer, inv.idCustomer || inv.namaCustomer, true, true);
+    custEl.add(newOpt);
+    custEl.value = newOpt.value;
+  }
+
+  custEl.dataset.selectedId = custEl.value;
+  custEl.dataset.selectedName = inv.namaCustomer;
+  custEl.disabled = true;
+  custEl.style.backgroundColor = '#f1f5f9';
+  custEl.style.cursor = 'not-allowed';
+
+  var hintEl = document.getElementById('ord-inv-hint');
+  if (hintEl) {
+    hintEl.innerHTML = '<span style="color:#059669;font-weight:600">✓ Terhubung dengan Faktur di Delivery Order List. Customer otomatis terkunci: ' + escapeHtml(inv.namaCustomer) + '</span>';
+  }
+}
+
+function unlockCustomerSelect() {
+  var custEl = document.getElementById('ord-customer');
+  if (custEl) {
+    custEl.disabled = false;
+    custEl.style.backgroundColor = '';
+    custEl.style.cursor = '';
+    delete custEl.dataset.selectedId;
+    delete custEl.dataset.selectedName;
+  }
+  var hintEl = document.getElementById('ord-inv-hint');
+  if (hintEl) {
+    hintEl.innerHTML = 'Ketik 4 digit terakhir no faktur untuk mencari dari Delivery Order List.';
+  }
+}
+
+function clearSelectedInvoice() {
+  var inputEl = document.getElementById('ord-nomor');
+  if (inputEl) {
+    inputEl.value = '';
+    inputEl.focus();
+  }
+  var clearBtn = document.getElementById('ord-nomor-clear');
+  if (clearBtn) clearBtn.style.display = 'none';
+  unlockCustomerSelect();
+  closeInvoiceSuggestions();
+}
+
+function checkBarcodeAgainstAvailableInvoices(barcodeText) {
+  var clean = String(barcodeText || '').trim().toLowerCase();
+  if (!clean) return;
+
+  var invoices = STATE.availableInvoices || [];
+  for (var i = 0; i < invoices.length; i++) {
+    var fn = String(invoices[i].nomorFaktur || '').trim().toLowerCase();
+    if (fn === clean || fn.slice(-4) === clean) {
+      selectInvoiceForOrder(invoices[i].nomorFaktur);
+      break;
+    }
+  }
 }
 
 // ============================================================================
@@ -2972,11 +3195,6 @@ function renderCustomerView() {
     }
   }
 
-  var isBackOfficeUser = STATE.session && STATE.session.user && STATE.session.user.divisi === 'Back Office';
-  var importBtnHtml = isBackOfficeUser
-    ? '<button type="button" class="btn btn-emerald" onclick="openImportCustomerAccurateModal()">' + (ICONS.fileSpreadsheet || ICONS.upload) + '<span>Import Customer Accurate (.xlsx)</span></button>'
-    : '';
-
   return (
     '<div class="page-header">' +
       '<div>' +
@@ -2985,7 +3203,6 @@ function renderCustomerView() {
       '</div>' +
       '<div class="header-actions">' +
         renderSyncStatusBadge() +
-        importBtnHtml +
         '<button type="button" class="btn btn-primary" onclick="openCustomerModal(\'\')">' + ICONS.plus + '<span>Tambah Customer</span></button>' +
       '</div>' +
     '</div>' +
@@ -3065,35 +3282,229 @@ function openCustomerModal(idCustomer) {
   });
 }
 
-function openImportCustomerAccurateModal() {
-  STATE._pendingAccurateImportItems = null;
+function renderDeliveryOrderListView() {
+  var f = STATE.orderList.filters;
+  var items = STATE.orderList.items;
+  var rowsHtml = '';
+
+  if (!items.length) {
+    rowsHtml = '<tr><td colspan="7" class="empty-state">Tidak ada data Delivery Order List. Silakan gunakan tombol "Import dari Excel" untuk menambahkan data faktur.</td></tr>';
+  } else {
+    for (var i = 0; i < items.length; i++) {
+      var it = items[i];
+      var st = it.statusPengiriman || '-';
+      var badgeStatus = '<span class="badge" style="background:#f1f5f9;color:#64748b;font-weight:600">-</span>';
+      if (st === 'Siap Pick Up') {
+        badgeStatus = '<span class="badge badge-siap-pickup">Siap Pick Up</span>';
+      } else if (st === 'Dalam Perjalanan') {
+        badgeStatus = '<span class="badge badge-perjalanan">Dalam Perjalanan</span>';
+      } else if (st === 'Check-In Customer') {
+        badgeStatus = '<span class="badge badge-checkin">Check-In Customer</span>';
+      } else if (st === 'Selesai') {
+        badgeStatus = '<span class="badge badge-selesai">Selesai</span>';
+      } else if (st === 'Gagal Kirim') {
+        badgeStatus = '<span class="badge badge-gagal">Gagal Kirim</span>';
+      }
+
+      var tglPickUpStr = it.waktuPickUp ? formatTanggalIndo(it.waktuPickUp) : '-';
+      var tglSelesaiStr = it.waktuSelesai ? formatTanggalIndo(it.waktuSelesai) : '-';
+
+      rowsHtml +=
+        '<tr>' +
+          '<td><div class="cell-strong" style="font-family:monospace;font-size:13px">' + escapeHtml(it.nomorFaktur) + '</div></td>' +
+          '<td>' + escapeHtml(it.tanggalInvoice || '-') + '</td>' +
+          '<td><div class="cell-strong">' + escapeHtml(it.namaCustomer) + '</div></td>' +
+          '<td>' + badgeStatus + '</td>' +
+          '<td><div style="font-size:12px">' + escapeHtml(tglPickUpStr) + '</div></td>' +
+          '<td><div style="font-size:12px">' + escapeHtml(tglSelesaiStr) + '</div></td>' +
+          '<td>' + escapeHtml(it.namaDriver || '-') + '</td>' +
+        '</tr>';
+    }
+  }
+
+  return (
+    '<div class="page-header">' +
+      '<div>' +
+        '<h2 class="page-title">Delivery Order List</h2>' +
+        '<p class="page-subtitle">Daftar faktur/invoice terintegrasi, import Excel, dan pemantauan status pengiriman</p>' +
+      '</div>' +
+      '<div class="header-actions">' +
+        renderSyncStatusBadge() +
+        '<button type="button" class="btn btn-secondary" onclick="exportOrderListToExcel()">' + ICONS.download + '<span>Export Excel</span></button>' +
+        '<button type="button" class="btn btn-emerald" onclick="openImportOrderListModal()">' + (ICONS.fileSpreadsheet || ICONS.upload) + '<span>Import dari Excel (.xlsx)</span></button>' +
+      '</div>' +
+    '</div>' +
+    '<div class="card" style="margin-bottom:14px">' +
+      '<div class="filter-bar" style="margin-bottom:0;display:grid;grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));gap:10px">' +
+        '<div class="form-group"><label class="form-label">No Faktur</label><input id="dol-no-faktur" class="form-control" type="text" value="' + escapeHtml(f.noFaktur) + '" placeholder="Cari nomor faktur..." onkeydown="if(event.key===\'Enter\'){event.preventDefault();applyOrderListFilter();}" /></div>' +
+        '<div class="form-group"><label class="form-label">Nama Customer</label><input id="dol-customer" class="form-control" type="text" value="' + escapeHtml(f.customer) + '" placeholder="Cari nama customer..." onkeydown="if(event.key===\'Enter\'){event.preventDefault();applyOrderListFilter();}" /></div>' +
+        '<div class="form-group"><label class="form-label">Status Pengiriman</label><select id="dol-status" class="form-control"><option value="">Semua Status</option><option value="-" ' + (f.status === '-' ? 'selected' : '') + '>- (Belum Ada DO)</option><option value="Siap Pick Up" ' + (f.status === 'Siap Pick Up' ? 'selected' : '') + '>Siap Pick Up</option><option value="Dalam Perjalanan" ' + (f.status === 'Dalam Perjalanan' ? 'selected' : '') + '>Dalam Perjalanan</option><option value="Check-In Customer" ' + (f.status === 'Check-In Customer' ? 'selected' : '') + '>Check-In Customer</option><option value="Selesai" ' + (f.status === 'Selesai' ? 'selected' : '') + '>Selesai</option><option value="Gagal Kirim" ' + (f.status === 'Gagal Kirim' ? 'selected' : '') + '>Gagal Kirim</option></select></div>' +
+        '<div class="form-group"><label class="form-label">Tgl Invoice (Dari - S.d.)</label><div style="display:flex;gap:4px"><input id="dol-date-from" class="form-control" type="date" value="' + escapeHtml(f.dateFrom) + '" /><input id="dol-date-to" class="form-control" type="date" value="' + escapeHtml(f.dateTo) + '" /></div></div>' +
+        '<div class="form-group"><label class="form-label">Tgl Pick Up (Dari - S.d.)</label><div style="display:flex;gap:4px"><input id="dol-pickup-from" class="form-control" type="date" value="' + escapeHtml(f.pickUpDateFrom) + '" /><input id="dol-pickup-to" class="form-control" type="date" value="' + escapeHtml(f.pickUpDateTo) + '" /></div></div>' +
+        '<div class="form-group"><label class="form-label">Tgl Selesai (Dari - S.d.)</label><div style="display:flex;gap:4px"><input id="dol-selesai-from" class="form-control" type="date" value="' + escapeHtml(f.selesaiDateFrom) + '" /><input id="dol-selesai-to" class="form-control" type="date" value="' + escapeHtml(f.selesaiDateTo) + '" /></div></div>' +
+        '<div class="form-group" style="display:flex;gap:6px;align-items:flex-end">' +
+          '<button type="button" class="btn btn-navy" style="flex:1" onclick="applyOrderListFilter()">Filter</button>' +
+          '<button type="button" class="btn-reset-filter" onclick="resetOrderListFilter()" title="Reset Filter">' + ICONS.rotateCcw + '<span>Reset</span></button>' +
+        '</div>' +
+      '</div>' +
+    '</div>' +
+    '<div class="table-card">' +
+      '<div class="table-wrap"><table class="data-table"><thead><tr><th>No Faktur</th><th>Tgl Invoice</th><th>Nama Customer</th><th>Status Pengiriman</th><th>Tgl Pick Up</th><th>Tgl Selesai</th><th>Petugas</th></tr></thead><tbody>' + rowsHtml + '</tbody></table></div>' +
+      renderPaginationBar(STATE.orderList.page, STATE.orderList.totalPages, STATE.orderList.total, 'changeOrderListPage') +
+    '</div>'
+  );
+}
+
+function applyOrderListFilter() {
+  var noFakturEl = document.getElementById('dol-no-faktur');
+  var customerEl = document.getElementById('dol-customer');
+  var statusEl = document.getElementById('dol-status');
+  var dFromEl = document.getElementById('dol-date-from');
+  var dToEl = document.getElementById('dol-date-to');
+  var pFromEl = document.getElementById('dol-pickup-from');
+  var pToEl = document.getElementById('dol-pickup-to');
+  var sFromEl = document.getElementById('dol-selesai-from');
+  var sToEl = document.getElementById('dol-selesai-to');
+
+  STATE.orderList.filters.noFaktur = noFakturEl ? noFakturEl.value.trim() : '';
+  STATE.orderList.filters.customer = customerEl ? customerEl.value.trim() : '';
+  STATE.orderList.filters.status = statusEl ? statusEl.value : '';
+  STATE.orderList.filters.dateFrom = dFromEl ? dFromEl.value : '';
+  STATE.orderList.filters.dateTo = dToEl ? dToEl.value : '';
+  STATE.orderList.filters.pickUpDateFrom = pFromEl ? pFromEl.value : '';
+  STATE.orderList.filters.pickUpDateTo = pToEl ? pToEl.value : '';
+  STATE.orderList.filters.selesaiDateFrom = sFromEl ? sFromEl.value : '';
+  STATE.orderList.filters.selesaiDateTo = sToEl ? sToEl.value : '';
+  STATE.orderList.page = 1;
+
+  fetchOrderListData(true);
+}
+
+function resetOrderListFilter() {
+  STATE.orderList.filters = {
+    search: '',
+    noFaktur: '',
+    customer: '',
+    status: '',
+    dateFrom: '',
+    dateTo: '',
+    pickUpDateFrom: '',
+    pickUpDateTo: '',
+    selesaiDateFrom: '',
+    selesaiDateTo: ''
+  };
+  STATE.orderList.page = 1;
+  fetchOrderListData(true);
+}
+
+function changeOrderListPage(page) {
+  STATE.orderList.page = page;
+  fetchOrderListData(false);
+}
+
+function fetchOrderListData(forceRefresh, fetchOpts) {
+  var silent = Boolean(fetchOpts && fetchOpts.silent);
+  var f = STATE.orderList.filters;
+  var payload = {
+    page: STATE.orderList.page,
+    limit: STATE.orderList.limit,
+    noFaktur: f.noFaktur,
+    customer: f.customer,
+    status: f.status,
+    dateFrom: f.dateFrom,
+    dateTo: f.dateTo,
+    pickUpDateFrom: f.pickUpDateFrom,
+    pickUpDateTo: f.pickUpDateTo,
+    selesaiDateFrom: f.selesaiDateFrom,
+    selesaiDateTo: f.selesaiDateTo
+  };
+  var cacheKey = 'order_list_' + JSON.stringify(payload);
+  var servedFromCache = !forceRefresh && hasCacheEntry(cacheKey);
+  if (!servedFromCache) {
+    setSyncVisualState(true, false);
+  }
+
+  callGasApi('listDeliveryOrderList', payload, {
+    cacheKey: cacheKey,
+    forceRefresh: Boolean(forceRefresh)
+  }).then(function (data) {
+    STATE.orderList.items = data.items || [];
+    STATE.orderList.total = data.total || 0;
+    STATE.orderList.page = data.page || 1;
+    STATE.orderList.totalPages = data.totalPages || 1;
+
+    setSyncVisualState(false, !servedFromCache || Boolean(forceRefresh));
+
+    if (STATE.currentPage === 'order-list') {
+      renderApp();
+    }
+  }).catch(function (err) {
+    setSyncVisualState(false, false);
+    showToast('Gagal memuat Delivery Order List: ' + (err.message || err), 'error');
+  });
+}
+
+function exportOrderListToExcel() {
+  if (typeof XLSX === 'undefined') {
+    showToast('Library Excel belum siap. Silakan muat ulang halaman.', 'error');
+    return;
+  }
+  var items = STATE.orderList.items || [];
+  if (!items.length) {
+    showToast('Tidak ada data Delivery Order List untuk diekspor.', 'warning');
+    return;
+  }
+
+  var exportData = [];
+  for (var i = 0; i < items.length; i++) {
+    var it = items[i];
+    exportData.push({
+      'No. Faktur': it.nomorFaktur,
+      'Tanggal Invoice': it.tanggalInvoice || '-',
+      'Nama Customer': it.namaCustomer,
+      'Status Pengiriman': it.statusPengiriman || '-',
+      'Tanggal Pick Up': it.waktuPickUp ? formatTanggalIndo(it.waktuPickUp) : '-',
+      'Tanggal Selesai': it.waktuSelesai ? formatTanggalIndo(it.waktuSelesai) : '-',
+      'Petugas': it.namaDriver || '-'
+    });
+  }
+
+  var ws = XLSX.utils.json_to_sheet(exportData);
+  var wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'DeliveryOrderList');
+  var filename = 'Delivery_Order_List_' + getTodayYMD().replace(/-/g, '') + '.xlsx';
+  XLSX.writeFile(wb, filename);
+  showToast('Berhasil mengekspor ' + exportData.length + ' data ke ' + filename, 'success');
+}
+
+function openImportOrderListModal() {
+  STATE._pendingOrderListImportItems = null;
 
   var html =
     '<div class="modal-header">' +
-      '<h3 class="modal-title">Import Pelanggan dari Accurate Online (.xlsx)</h3>' +
+      '<h3 class="modal-title">Import Delivery Order List dari Excel (.xlsx)</h3>' +
       '<button type="button" class="modal-close" onclick="closeModal()">' + ICONS.x + '</button>' +
     '</div>' +
     '<div class="modal-body" style="display:flex;flex-direction:column;gap:12px">' +
       '<div class="alert alert-info" style="display:flex;gap:10px;align-items:flex-start;background:#f0fdf4;border:1px solid #bbf7d0;color:#166534;border-radius:8px;padding:12px">' +
         '<span style="font-size:18px;line-height:1">💡</span>' +
         '<div style="font-size:12px;line-height:1.5">' +
-          '<strong>Cara Ekspor dari Accurate Online:</strong><br>' +
-          '1. Buka Accurate Online &rarr; Masuk menu <strong>Penjualan</strong> &rarr; <strong>Pelanggan</strong>.<br>' +
-          '2. Klik tombol <strong>Ekspor / Unduh Excel (.xlsx)</strong>.<br>' +
-          '3. Pilih file Excel hasil download tersebut pada kotak di bawah ini.' +
+          '<strong>Format File Excel yang Dibutuhkan:</strong><br>' +
+          'File Excel (.xlsx / .xls / .csv) harus memuat kolom: <strong>Tgl Invoice</strong>, <strong>No Faktur</strong>, dan <strong>Nama Customer</strong>.<br>' +
+          'Data yang nomor fakturnya sudah pernah di-import akan otomatis dilewati agar tidak dobel.' +
         '</div>' +
       '</div>' +
-      '<div id="accurate-dropzone" class="accurate-upload-box" onclick="document.getElementById(\'accurate-file-input\').click()">' +
+      '<div id="orderlist-dropzone" class="accurate-upload-box" onclick="document.getElementById(\'orderlist-file-input\').click()">' +
         '<div style="color:#059669;margin-bottom:8px;display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;background:#dcfce7;border-radius:10px">' + (ICONS.fileSpreadsheet || ICONS.upload) + '</div>' +
-        '<div style="font-weight:700;font-size:14px;color:#1e293b;margin-bottom:4px">Klik untuk Memilih File Excel Accurate</div>' +
+        '<div style="font-weight:700;font-size:14px;color:#1e293b;margin-bottom:4px">Klik untuk Memilih File Excel Faktur/Invoice</div>' +
         '<div style="font-size:12px;color:#64748b">Mendukung format .xlsx, .xls, atau .csv</div>' +
-        '<input type="file" id="accurate-file-input" accept=".xlsx, .xls, .csv" style="display:none" onchange="handleAccurateExcelSelected(event)" />' +
+        '<input type="file" id="orderlist-file-input" accept=".xlsx, .xls, .csv" style="display:none" onchange="handleOrderListExcelSelected(event)" />' +
       '</div>' +
-      '<div id="accurate-import-preview" style="display:none"></div>' +
+      '<div id="orderlist-import-preview" style="display:none"></div>' +
     '</div>' +
     '<div class="modal-footer" style="display:flex;justify-content:flex-end;gap:8px">' +
       '<button type="button" class="btn btn-secondary" onclick="closeModal()">Batal</button>' +
-      '<button type="button" id="btn-submit-accurate-import" class="btn btn-emerald" disabled onclick="submitAccurateCustomerImport()">' +
+      '<button type="button" id="btn-submit-orderlist-import" class="btn btn-emerald" disabled onclick="submitOrderListImport()">' +
         ICONS.check +
         '<span>Mulai Import Sekarang</span>' +
       '</button>' +
@@ -3102,19 +3513,17 @@ function openImportCustomerAccurateModal() {
   openModal(html, true);
 }
 
-function handleAccurateExcelSelected(event) {
+function handleOrderListExcelSelected(event) {
   var file = event.target.files && event.target.files[0];
-  if (!file) {
-    return;
-  }
+  if (!file) return;
 
   if (typeof XLSX === 'undefined') {
     showToast('Library pembaca Excel (SheetJS) belum siap. Silakan muat ulang halaman.', 'error');
     return;
   }
 
-  var previewDiv = document.getElementById('accurate-import-preview');
-  var submitBtn = document.getElementById('btn-submit-accurate-import');
+  var previewDiv = document.getElementById('orderlist-import-preview');
+  var submitBtn = document.getElementById('btn-submit-orderlist-import');
   if (previewDiv) {
     previewDiv.style.display = 'block';
     previewDiv.innerHTML = '<div style="padding:16px;text-align:center;color:#64748b;font-size:13px"><span class="spinner" style="display:inline-block;width:14px;height:14px;border:2px solid #0284c7;border-top-color:transparent;border-radius:50%;animation:spin 0.8s linear infinite;margin-right:6px"></span> Membaca dan menganalisis file Excel...</div>';
@@ -3134,124 +3543,99 @@ function handleAccurateExcelSelected(event) {
       var sheet = workbook.Sheets[workbook.SheetNames[0]];
       var sheetData = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
       if (!sheetData || sheetData.length <= 1) {
-        showToast('File Excel kosong atau tidak memiliki baris data.', 'warning');
+        showToast('File Excel kosong atau tidak memiliki data.', 'warning');
         if (previewDiv) previewDiv.style.display = 'none';
         return;
       }
 
       var headerRowIndex = 0;
-      var colId = -1;
-      var colName = -1;
-      var colAddress = -1;
-      var colPic = -1;
-      var colPhone = -1;
+      var colFaktur = -1;
+      var colDate = -1;
+      var colCustomer = -1;
 
       for (var r = 0; r < Math.min(sheetData.length, 15); r++) {
         var row = sheetData[r];
         if (!Array.isArray(row)) continue;
-        var tempId = -1;
-        var tempName = -1;
-        var tempAddress = -1;
+        var tempFaktur = -1, tempDate = -1, tempCust = -1;
 
         for (var c = 0; c < row.length; c++) {
           var h = String(row[c] || '').trim().toLowerCase();
-          if (/no\.?\s*pelanggan|id\s*pelanggan|kode\s*pelanggan|customer\s*no|no\s*customer|id\s*customer/.test(h)) {
-            tempId = c;
+          if (/no\.?\s*faktur|nomor\s*faktur|invoice\s*no|no\.?\s*invoice|nomor\s*invoice|^faktur$|^no\s*do$|^nomor\s*do$/.test(h)) {
+            tempFaktur = c;
           }
-          if (/nama\s*pelanggan|nama\s*customer|customer\s*name|^nama$/.test(h)) {
-            tempName = c;
+          if (/tgl\.?\s*invoice|tanggal\s*invoice|invoice\s*date|tgl\.?\s*faktur|tanggal\s*faktur|^tgl$|^tanggal$/.test(h)) {
+            tempDate = c;
           }
-          if (/alamat\s*penagihan|alamat\s*pengiriman|^alamat$|address|street/.test(h)) {
-            tempAddress = c;
+          if (/nama\s*customer|customer\s*name|nama\s*pelanggan|^customer$|^pelanggan$/.test(h)) {
+            tempCust = c;
           }
         }
 
-        if (tempName !== -1) {
+        if (tempFaktur !== -1 && tempCust !== -1) {
           headerRowIndex = r;
-          colId = tempId;
-          colName = tempName;
-          colAddress = tempAddress;
-          for (var c2 = 0; c2 < row.length; c2++) {
-            var h2 = String(row[c2] || '').trim().toLowerCase();
-            if (/kontak|pic|contact/.test(h2)) colPic = c2;
-            if (/telepon|handphone|no\.?\s*hp|no\.?\s*wa|phone|mobile/.test(h2)) colPhone = c2;
-          }
+          colFaktur = tempFaktur;
+          colDate = tempDate;
+          colCustomer = tempCust;
           break;
         }
       }
 
-      if (colName === -1) {
-        showToast('Kolom "Nama Pelanggan" tidak ditemukan di file Excel. Pastikan file adalah ekspor Pelanggan dari Accurate.', 'error');
+      if (colFaktur === -1 || colCustomer === -1) {
+        showToast('Kolom "No Faktur" atau "Nama Customer" tidak terdeteksi di file Excel. Pastikan header sesuai.', 'error');
         if (previewDiv) previewDiv.style.display = 'none';
         return;
       }
 
       var existingMap = {};
-      var existingList = STATE.dropdowns && STATE.dropdowns.customers ? STATE.dropdowns.customers : [];
-      for (var k = 0; k < existingList.length; k++) {
-        var ex = existingList[k];
-        if (ex.idCustomer) existingMap[String(ex.idCustomer).trim().toLowerCase()] = true;
-        if (ex.namaCustomer) existingMap[String(ex.namaCustomer).trim().toLowerCase()] = true;
-      }
-      if (STATE.customer && STATE.customer.items) {
-        for (var m = 0; m < STATE.customer.items.length; m++) {
-          var ci = STATE.customer.items[m];
-          if (ci.idCustomer) existingMap[String(ci.idCustomer).trim().toLowerCase()] = true;
-          if (ci.namaCustomer) existingMap[String(ci.namaCustomer).trim().toLowerCase()] = true;
-        }
+      var currentItems = STATE.orderList.items || [];
+      for (var k = 0; k < currentItems.length; k++) {
+        var ef = String(currentItems[k].nomorFaktur || '').trim().toLowerCase();
+        if (ef) existingMap[ef] = true;
       }
 
-      var newCustomers = [];
+      var newItems = [];
       var skippedCount = 0;
       var previewRows = [];
 
       for (var i = headerRowIndex + 1; i < sheetData.length; i++) {
         var rData = sheetData[i];
         if (!rData || !rData.length) continue;
-        var rawNama = String(colName !== -1 ? rData[colName] || '' : '').trim();
-        if (!rawNama) continue;
 
-        var rawId = String(colId !== -1 ? rData[colId] || '' : '').trim();
-        var rawAlamat = String(colAddress !== -1 ? rData[colAddress] || '' : '').trim();
-        var rawPic = String(colPic !== -1 ? rData[colPic] || '' : '').trim();
-        var rawPhone = String(colPhone !== -1 ? rData[colPhone] || '' : '').trim();
+        var rawNoFaktur = String(rData[colFaktur] || '').trim();
+        var rawCustomer = String(rData[colCustomer] || '').trim();
+        var rawDate = colDate !== -1 ? String(rData[colDate] || '').trim() : '';
 
-        var normId = rawId.toLowerCase();
-        var normNama = rawNama.toLowerCase();
-        var isDuplicate = (normId && existingMap[normId]) || existingMap[normNama];
+        if (!rawNoFaktur || !rawCustomer) continue;
 
-        if (isDuplicate) {
+        var normFaktur = rawNoFaktur.toLowerCase();
+        if (existingMap[normFaktur]) {
           skippedCount++;
           if (previewRows.length < 8) {
-            previewRows.push({ id: rawId || '-', nama: rawNama, alamat: rawAlamat, status: 'Sudah Ada (Dilewati)' });
+            previewRows.push({ noFaktur: rawNoFaktur, customer: rawCustomer, tgl: rawDate, status: 'Sudah Ada (Dilewati)' });
           }
         } else {
-          if (normId) existingMap[normId] = true;
-          existingMap[normNama] = true;
-          var newObj = {
-            idCustomer: rawId,
-            namaCustomer: rawNama,
-            alamat: rawAlamat || '-',
-            namaPIC: rawPic || '-',
-            noWhatsApp: rawPhone || '-'
-          };
-          newCustomers.push(newObj);
+          existingMap[normFaktur] = true;
+          newItems.push({
+            nomorFaktur: rawNoFaktur,
+            namaCustomer: rawCustomer,
+            tanggalInvoice: rawDate
+          });
           if (previewRows.length < 8) {
-            previewRows.push({ id: rawId || '(Otomatis)', nama: rawNama, alamat: rawAlamat, status: 'Baru (Akan Di-import)' });
+            previewRows.push({ noFaktur: rawNoFaktur, customer: rawCustomer, tgl: rawDate, status: 'Baru (Akan Di-import)' });
           }
         }
       }
 
-      STATE._pendingAccurateImportItems = newCustomers;
+      STATE._pendingOrderListImportItems = newItems;
 
       var previewHtml =
         '<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px">' +
           '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:4px">' +
-            '<span style="font-weight:700;font-size:13px;color:#1e293b">Hasil Pengecekan File (' + escapeHtml(file.name) + ')</span>' +
-            '<span style="font-size:12px;color:#64748b">Total dibaca: ' + (newCustomers.length + skippedCount) + ' baris</span>' +
+            '<span style="font-weight:700;font-size:13px;color:#1e293b">Hasil Analisis File (' + escapeHtml(file.name) + ')</span>' +
+            '<span style="font-size:12px;color:#64748b">Total baris: ' + (newItems.length + skippedCount) + '</span>' +
           '</div>' +
           '<div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">' +
-            '<span class="badge" style="background:#dcfce7;color:#15803d;font-weight:700;padding:4px 8px;border-radius:6px;font-size:12px">✓ ' + newCustomers.length + ' Pelanggan Baru</span>' +
+            '<span class="badge" style="background:#dcfce7;color:#15803d;font-weight:700;padding:4px 8px;border-radius:6px;font-size:12px">✓ ' + newItems.length + ' Faktur Baru</span>' +
             '<span class="badge" style="background:#f1f5f9;color:#64748b;font-weight:600;padding:4px 8px;border-radius:6px;font-size:12px">' + skippedCount + ' Sudah Terdaftar (Dilewati)</span>' +
           '</div>';
 
@@ -3260,7 +3644,7 @@ function handleAccurateExcelSelected(event) {
           '<div style="overflow-x:auto;max-height:180px;border:1px solid #e2e8f0;border-radius:6px">' +
             '<table style="width:100%;font-size:11px;border-collapse:collapse;text-align:left">' +
               '<thead style="background:#f1f5f9;position:sticky;top:0">' +
-                '<tr><th style="padding:5px 8px">ID Pelanggan</th><th style="padding:5px 8px">Nama Pelanggan</th><th style="padding:5px 8px">Alamat</th><th style="padding:5px 8px">Status</th></tr>' +
+                '<tr><th style="padding:5px 8px">No Faktur</th><th style="padding:5px 8px">Tgl Invoice</th><th style="padding:5px 8px">Nama Customer</th><th style="padding:5px 8px">Status</th></tr>' +
               '</thead>' +
               '<tbody>';
         for (var p = 0; p < previewRows.length; p++) {
@@ -3268,9 +3652,9 @@ function handleAccurateExcelSelected(event) {
           var isNew = pr.status.indexOf('Baru') !== -1;
           previewHtml +=
             '<tr style="border-top:1px solid #f1f5f9">' +
-              '<td style="padding:5px 8px;white-space:nowrap;font-family:monospace;font-size:11px">' + escapeHtml(pr.id) + '</td>' +
-              '<td style="padding:5px 8px;font-weight:600">' + escapeHtml(pr.nama) + '</td>' +
-              '<td style="padding:5px 8px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escapeHtml(pr.alamat || '-') + '</td>' +
+              '<td style="padding:5px 8px;white-space:nowrap;font-family:monospace;font-size:11px;font-weight:600">' + escapeHtml(pr.noFaktur) + '</td>' +
+              '<td style="padding:5px 8px;white-space:nowrap">' + escapeHtml(pr.tgl || '-') + '</td>' +
+              '<td style="padding:5px 8px;font-weight:600">' + escapeHtml(pr.customer) + '</td>' +
               '<td style="padding:5px 8px"><span style="color:' + (isNew ? '#15803d' : '#94a3b8') + ';font-weight:700">' + pr.status + '</span></td>' +
             '</tr>';
         }
@@ -3285,16 +3669,16 @@ function handleAccurateExcelSelected(event) {
       }
 
       if (submitBtn) {
-        if (newCustomers.length > 0) {
+        if (newItems.length > 0) {
           submitBtn.disabled = false;
-          submitBtn.innerHTML = ICONS.check + '<span>Mulai Import (' + newCustomers.length + ' Customer Baru)</span>';
+          submitBtn.innerHTML = ICONS.check + '<span>Mulai Import (' + newItems.length + ' Faktur Baru)</span>';
         } else {
           submitBtn.disabled = true;
-          submitBtn.innerHTML = ICONS.check + '<span>Tidak Ada Pelanggan Baru</span>';
+          submitBtn.innerHTML = ICONS.check + '<span>Tidak Ada Faktur Baru</span>';
         }
       }
     } catch (err) {
-      console.error('Error memproses file Excel Accurate:', err);
+      console.error('Error memproses file Excel Faktur:', err);
       showToast('Gagal memproses file Excel: ' + (err.message || err), 'error');
       if (previewDiv) previewDiv.style.display = 'none';
     }
@@ -3303,35 +3687,34 @@ function handleAccurateExcelSelected(event) {
   reader.readAsArrayBuffer(file);
 }
 
-function submitAccurateCustomerImport() {
-  var items = STATE._pendingAccurateImportItems;
+function submitOrderListImport() {
+  var items = STATE._pendingOrderListImportItems;
   if (!items || !items.length) {
-    showToast('Tidak ada data pelanggan baru yang perlu di-import.', 'warning');
+    showToast('Tidak ada data faktur baru yang perlu di-import.', 'warning');
     return;
   }
 
-  var btn = document.getElementById('btn-submit-accurate-import');
+  var btn = document.getElementById('btn-submit-orderlist-import');
   if (btn) {
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner"></span><span>Menyimpan ke Database...</span>';
   }
 
-  callGasApi('importCustomersBatch', { items: items })
+  callGasApi('importDeliveryOrderListBatch', { items: items })
     .then(function (res) {
-      clearApiCache('customer_');
-      clearApiCache('dropdowns');
+      clearApiCache('order_list_');
       closeModal();
-      fetchCustomerData(true);
-      ensureDropdownsLoaded(true);
-      var msg = 'Berhasil mengimpor ' + (res.importedCount || 0) + ' customer baru dari Accurate!';
+      fetchOrderListData(true);
+      loadAvailableInvoices(true);
+      var msg = 'Berhasil mengimpor ' + (res.importedCount || 0) + ' faktur baru ke Delivery Order List!';
       if (res.skippedCount > 0) {
         msg += ' (' + res.skippedCount + ' sudah ada dilewati)';
       }
       showToast(msg, 'success');
     })
     .catch(function (err) {
-      console.error('Gagal import customer:', err);
-      showToast('Gagal import customer: ' + (err.message || err), 'error');
+      console.error('Gagal import faktur:', err);
+      showToast('Gagal import faktur: ' + (err.message || err), 'error');
       if (btn) {
         btn.disabled = false;
         btn.innerHTML = ICONS.check + '<span>Mulai Import Ulang</span>';
@@ -5335,6 +5718,7 @@ function onBarcodeScanSuccess(decodedText) {
     setTimeout(function () {
       if (inputNomor) inputNomor.classList.remove('input-scan-highlight');
     }, 2500);
+    checkBarcodeAgainstAvailableInvoices(cleanText);
   }
   showToast('Nomor DO berhasil dipindai: ' + cleanText, 'success');
 }

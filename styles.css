@@ -1685,6 +1685,11 @@ table.data-table {
   background: #f0fdf4;
 }
 
+.invoice-suggest-item:hover {
+  background: #f8fafc;
+}
+
+
 
 
 
